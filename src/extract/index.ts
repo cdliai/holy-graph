@@ -89,7 +89,12 @@ export interface ExtractOptions {
   since?: string;
   /** Override delta-computation config (defaults to DEFAULT_DELTA_CONFIG). */
   deltaConfig?: DeltaConfig;
-  /** Show a progress reporter on stderr (default: true in TTY, always off otherwise). */
+  /**
+   * Show a progress reporter on stderr.
+   * TTY: live single-line updates. Non-TTY: single-line final summary only.
+   * Set to `false` to suppress all progress output (useful in tests).
+   * Default: `true`.
+   */
   showProgress?: boolean;
 }
 
