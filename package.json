@@ -34,7 +34,9 @@
     "extract": "node src/extract/index.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "d3-force-3d": "^3.0.5",
@@ -43,6 +45,7 @@
   "devDependencies": {
     "@types/three": "^0.163.0",
     "typescript": "^5.4.5",
-    "vite": "^5.2.10"
+    "vite": "^5.2.10",
+    "vitest": "^1.6.0"
   }
 }
