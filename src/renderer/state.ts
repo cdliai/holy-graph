@@ -5,7 +5,7 @@
 // Replay is pure arithmetic — no rendering, no sim — so ~4000 commits apply in
 // a few milliseconds.
 
-import type { Dataset } from "./schema";
+import type { Dataset } from "../schema";
 
 // Time-based decay half-lives, expressed in days.
 // Activity of an untouched file halves roughly every HALF_LIFE_ACT_DAYS.
