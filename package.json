@@ -31,7 +31,7 @@
     "README.md"
   ],
   "scripts": {
-    "extract": "node src/extract/index.mjs",
+    "extract": "tsx src/extract/index.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -43,7 +43,9 @@
     "three": "^0.163.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "@types/three": "^0.163.0",
+    "tsx": "^4.7.0",
     "typescript": "^5.4.5",
     "vite": "^5.2.10",
     "vitest": "^1.6.0"

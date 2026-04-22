@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
 // Extract a commit-indexed semantic graph from a git repository.
 //
@@ -22,6 +21,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_VERSION } from "../schema/version.mjs";
+import type { Commit, FileMeta, ClusterEdge } from "../schema/v1.js";
 
 // ────────────────────────────────────────────────────────────────
 // Config
@@ -66,26 +66,25 @@ const CLUSTER_PALETTE = [
 
 // Disk parameters: cluster anchors are laid out on a 2D disk (XZ plane).
 // Radius scales with the number of clusters so they never overlap.
-const DISK_RADIUS_PER_CLUSTER = 18;
 const DISK_MIN_RADIUS = 90;
 
 // ────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────
 
-function git(args) {
+function git(args: string[]): string {
   return execFileSync("git", ["-C", REPO, ...args], {
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 512, // 512MB
   });
 }
 
-function isExcluded(path) {
+function isExcluded(path: string): boolean {
   for (const re of EXCLUDE) if (re.test(path)) return true;
   return false;
 }
 
-function clusterOf(path) {
+function clusterOf(path: string): string {
   const parts = path.split("/");
   const head = parts[0];
   const GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs"]);
@@ -99,8 +98,8 @@ function clusterOf(path) {
 // Each cluster gets equal angular spacing on its ring — this guarantees strong
 // visual separation between neighbours.
 const MAJOR_RING_COUNT = 22;
-function twoRingLayout(count, radius) {
-  const pts = new Array(count);
+function twoRingLayout(count: number, radius: number): [number, number][] {
+  const pts = new Array<[number, number]>(count);
   const outer = Math.min(count, MAJOR_RING_COUNT);
   const inner = count - outer;
   // Outer ring: evenly distributed, start at -90° so the biggest cluster sits at the top.
@@ -138,7 +137,7 @@ const raw = git([
 //   "-\t-\tpath"                      -> binary
 //   "a\tb\told => new"                -> rename collapsed
 //   "a\tb\tprefix/{old => new}/suffix"-> rename with common prefix/suffix
-function splitRename(field) {
+function splitRename(field: string): { from: string; to: string } {
   const braceIdx = field.indexOf("{");
   if (braceIdx !== -1) {
     const closeIdx = field.indexOf("}", braceIdx);
@@ -158,9 +157,23 @@ function splitRename(field) {
   return { from: field, to: field };
 }
 
-/** @type {Array<{hash:string,ts:number,author:string,subject:string,changes:Array<{from:string,to:string,added:number,removed:number}>}>} */
-const commitsRaw = [];
-let cur = null;
+interface RawChange {
+  from: string;
+  to: string;
+  added: number;
+  removed: number;
+}
+
+interface RawCommit {
+  hash: string;
+  ts: number;
+  author: string;
+  subject: string;
+  changes: RawChange[];
+}
+
+const commitsRaw: RawCommit[] = [];
+let cur: RawCommit | null = null;
 
 for (const line of raw.split("\n")) {
   if (!line) continue;
@@ -195,12 +208,21 @@ console.log(`[extract] parsed ${commitsRaw.length} commits`);
 //  - emit the per-commit touch list
 // ────────────────────────────────────────────────────────────────
 
-/** @type {Map<string, number>} */ // current path -> id
-const pathToId = new Map();
-/** @type {Array<{id:number, path:string, cluster:string, firstCommitIdx:number, totalTouches:number, allPaths:Set<string>}>} */
-const files = [];
+// current path -> id
+const pathToId: Map<string, number> = new Map();
 
-function ensureFile(path, commitIdx) {
+interface InternalFile {
+  id: number;
+  path: string;
+  cluster: string;
+  firstCommitIdx: number;
+  totalTouches: number;
+  allPaths: Set<string>;
+}
+
+const files: InternalFile[] = [];
+
+function ensureFile(path: string, commitIdx: number): number {
   let id = pathToId.get(path);
   if (id === undefined) {
     id = files.length;
@@ -217,7 +239,7 @@ function ensureFile(path, commitIdx) {
   return id;
 }
 
-function renameFile(from, to) {
+function renameFile(from: string, to: string): void {
   if (from === to) return;
   const id = pathToId.get(from);
   if (id === undefined) return;
@@ -229,8 +251,7 @@ function renameFile(from, to) {
   f.allPaths.add(to);
 }
 
-/** @type {Array<{sha:string,short:string,ts:number,date:string,author:string,msg:string,touches:Array<[number,number,number]>}>} */
-const commitsOut = [];
+const commitsOut: Commit[] = [];
 
 let kept = 0;
 let dropped = 0;
@@ -248,8 +269,8 @@ for (let ci = 0; ci < commitsRaw.length; ci++) {
     continue;
   }
 
-  const touches = [];
-  const seen = new Set();
+  const touches: Array<[number, number, number]> = [];
+  const seen: Set<number> = new Set();
   for (const ch of effective) {
     if (ch.from !== ch.to) {
       if (!pathToId.has(ch.from) && !pathToId.has(ch.to)) {
@@ -282,8 +303,8 @@ console.log(`[extract] kept ${kept} commits, dropped ${dropped}`);
 // Prune files with too few touches; remap ids; update firstCommitIdx
 // ────────────────────────────────────────────────────────────────
 
-const remap = new Map();
-const keptFiles = [];
+const remap: Map<number, number> = new Map();
+const keptFiles: FileMeta[] = [];
 for (const f of files) {
   if (f.totalTouches < MIN_FILE_TOTAL_TOUCHES) continue;
   const newId = keptFiles.length;
@@ -302,7 +323,7 @@ for (const f of files) {
 // file first appears in (post-pruning, post-filter).
 for (let ci = 0; ci < commitsOut.length; ci++) {
   const c = commitsOut[ci];
-  const filtered = [];
+  const filtered: Array<[number, number, number]> = [];
   for (const [oldId, added, removed] of c.touches) {
     const nid = remap.get(oldId);
     if (nid === undefined) continue;
@@ -315,9 +336,8 @@ for (let ci = 0; ci < commitsOut.length; ci++) {
 }
 
 // Drop commits that ended up empty after pruning — they're no-ops for the graph.
-const commitsFinal = [];
-/** @type {Map<number,number>} */
-const commitIdxRemap = new Map();
+const commitsFinal: Commit[] = [];
+const commitIdxRemap: Map<number, number> = new Map();
 for (let ci = 0; ci < commitsOut.length; ci++) {
   const c = commitsOut[ci];
   if (c.touches.length === 0) continue;
@@ -333,7 +353,7 @@ for (const f of keptFiles) {
 // Build clusters with disk positions
 // ────────────────────────────────────────────────────────────────
 
-const clusterSize = new Map();
+const clusterSize: Map<string, number> = new Map();
 for (const f of keptFiles) {
   clusterSize.set(f.cluster, (clusterSize.get(f.cluster) ?? 0) + 1);
 }
@@ -364,15 +384,15 @@ const clusters = clusterOrder.map((id, i) => ({
 // the client (d3-force over cluster-nodes with weighted attraction).
 // ────────────────────────────────────────────────────────────────
 
-const clusterIndex = new Map(clusterOrder.map((c, i) => [c, i]));
-const fileCluster = new Map(keptFiles.map((f) => [f.id, f.cluster]));
-const affKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-const affinity = new Map();
+const clusterIndex = new Map(clusterOrder.map((c, i): [string, number] => [c, i]));
+const fileCluster = new Map(keptFiles.map((f): [number, string] => [f.id, f.cluster]));
+function affKey(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+const affinity: Map<string, number> = new Map();
 
 for (const c of commitsFinal) {
   if (c.touches.length <= 1) continue;
   // Unique cluster indices touched in this commit.
-  const ci = new Set();
+  const ci: Set<number> = new Set();
   for (const [fid] of c.touches) {
     const cid = fileCluster.get(fid);
     if (cid === undefined) continue;
@@ -393,7 +413,7 @@ for (const c of commitsFinal) {
 }
 
 // Emit as compact array, filtering out near-zero edges.
-const clusterEdges = [];
+const clusterEdges: ClusterEdge[] = [];
 for (const [k, w] of affinity) {
   if (w < 0.5) continue;
   const [as, bs] = k.split("|");
