@@ -173,8 +173,8 @@ const out = {
     lastCommit: new Date(commitsFinal[commitsFinal.length - 1]?.ts ?? 0).toISOString(),
     diskRadius,
     config: {
-      maxFilesPerCommit: DEFAULT_DELTA_CONFIG.maxFilesPerCommit,
-      minFileTotalTouches: DEFAULT_DELTA_CONFIG.minFileTotalTouches,
+      MAX_FILES_PER_COMMIT: DEFAULT_DELTA_CONFIG.maxFilesPerCommit,
+      MIN_FILE_TOTAL_TOUCHES: DEFAULT_DELTA_CONFIG.minFileTotalTouches,
     },
   },
   clusters,
