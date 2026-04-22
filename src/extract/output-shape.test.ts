@@ -19,7 +19,7 @@ describe("extract output shape (regression anchor)", () => {
     expect(data.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
-  it("has a meta object with required fields", () => {
+  it("has a meta object with required fields and UPPER_SNAKE config keys", () => {
     expect(data.meta).toMatchObject({
       repo: expect.any(String),
       generatedAt: expect.any(String),
@@ -29,6 +29,10 @@ describe("extract output shape (regression anchor)", () => {
       diskRadius: expect.any(Number),
       config: expect.any(Object),
     });
+    // External schema uses UPPER_SNAKE keys (TypeScript DeltaConfig is internally
+    // camelCase). Keep this assertion — it caught a drift during Plan 1A.
+    expect(data.meta.config).toHaveProperty("MAX_FILES_PER_COMMIT");
+    expect(data.meta.config).toHaveProperty("MIN_FILE_TOTAL_TOUCHES");
   });
 
   it("clusters array — non-empty, each has id/label/color/size/position", () => {
