@@ -1,3 +1,4 @@
+// @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
 // Running state of the codebase graph: per-file activity EMA, per-edge
 // co-change weight EMA, with time-based decay.
 //

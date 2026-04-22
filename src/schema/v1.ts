@@ -1,3 +1,4 @@
+// @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
 // Schema version 1 — the first stable data.json contract.
 // Spec §9: any breaking change bumps this integer; renderer supports
 // current + previous major.

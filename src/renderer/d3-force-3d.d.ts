@@ -1,3 +1,4 @@
+// @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
 declare module "d3-force-3d" {
   export interface SimulationNode {
     x: number;
