@@ -30,7 +30,7 @@
     "README.md"
   ],
   "scripts": {
-    "extract": "node pipeline/extract.mjs",
+    "extract": "node src/extract/index.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
