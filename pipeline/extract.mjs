@@ -406,6 +406,7 @@ clusterEdges.sort((a, b) => b[2] - a[2]);
 mkdirSync(dirname(OUT), { recursive: true });
 
 const out = {
+  schemaVersion: 1,
   meta: {
     repo: REPO,
     generatedAt: new Date().toISOString(),
