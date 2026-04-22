@@ -20,9 +20,9 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_VERSION } from "../schema/version.mjs";
-import type { ClusterEdge } from "../schema/v1.js";
 import { walkGitLog, type RawCommit } from "./walker.js";
 import { DEFAULT_DELTA_CONFIG, computeDeltas } from "./deltas.js";
+import { computeAffinity } from "./affinity.js";
 
 // ────────────────────────────────────────────────────────────────
 // Config
@@ -120,42 +120,7 @@ const clusters = clusterOrder.map((id, i) => ({
 // the client (d3-force over cluster-nodes with weighted attraction).
 // ────────────────────────────────────────────────────────────────
 
-const clusterIndex = new Map(clusterOrder.map((c, i): [string, number] => [c, i]));
-const fileCluster = new Map(keptFiles.map((f): [number, string] => [f.id, f.cluster]));
-function affKey(a: number, b: number): string { return a < b ? `${a}|${b}` : `${b}|${a}`; }
-const affinity: Map<string, number> = new Map();
-
-for (const c of commitsFinal) {
-  if (c.touches.length <= 1) continue;
-  // Unique cluster indices touched in this commit.
-  const ci: Set<number> = new Set();
-  for (const [fid] of c.touches) {
-    const cid = fileCluster.get(fid);
-    if (cid === undefined) continue;
-    const idx = clusterIndex.get(cid);
-    if (idx !== undefined) ci.add(idx);
-  }
-  if (ci.size <= 1) continue;
-  const arr = Array.from(ci);
-  // Per-pair weight contribution decays with how many clusters touched (big
-  // commits shouldn't dominate the signal).
-  const contribution = 1 / Math.log2(arr.length + 2);
-  for (let i = 0; i < arr.length; i++) {
-    for (let j = i + 1; j < arr.length; j++) {
-      const k = affKey(arr[i], arr[j]);
-      affinity.set(k, (affinity.get(k) ?? 0) + contribution);
-    }
-  }
-}
-
-// Emit as compact array, filtering out near-zero edges.
-const clusterEdges: ClusterEdge[] = [];
-for (const [k, w] of affinity) {
-  if (w < 0.5) continue;
-  const [as, bs] = k.split("|");
-  clusterEdges.push([Number(as), Number(bs), +w.toFixed(3)]);
-}
-clusterEdges.sort((a, b) => b[2] - a[2]);
+const clusterEdges = computeAffinity(keptFiles, commitsFinal, clusterOrder);
 
 // ────────────────────────────────────────────────────────────────
 // Write output
