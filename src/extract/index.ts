@@ -16,12 +16,12 @@
 // co-change EMA with time-based decay. No per-frame snapshots are baked in —
 // the animation truly grows from zero as each commit is applied.
 
-import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_VERSION } from "../schema/version.mjs";
 import type { Commit, FileMeta, ClusterEdge } from "../schema/v1.js";
+import { walkGitLog, type RawCommit } from "./walker.js";
 
 // ────────────────────────────────────────────────────────────────
 // Config
@@ -72,13 +72,6 @@ const DISK_MIN_RADIUS = 90;
 // Helpers
 // ────────────────────────────────────────────────────────────────
 
-function git(args: string[]): string {
-  return execFileSync("git", ["-C", REPO, ...args], {
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024 * 512, // 512MB
-  });
-}
-
 function isExcluded(path: string): boolean {
   for (const re of EXCLUDE) if (re.test(path)) return true;
   return false;
@@ -122,84 +115,7 @@ function twoRingLayout(count: number, radius: number): [number, number][] {
 // ────────────────────────────────────────────────────────────────
 
 console.log(`[extract] repo: ${REPO}`);
-
-const raw = git([
-  "log",
-  "--reverse",
-  "--no-merges",
-  "-M70%",
-  "--numstat",
-  "--pretty=format:C\t%H\t%at\t%aN\t%s",
-]);
-
-// ── rename-aware path splitter ──────────────────────────────────
-//   "a\tb\tpath"                      -> regular change
-//   "-\t-\tpath"                      -> binary
-//   "a\tb\told => new"                -> rename collapsed
-//   "a\tb\tprefix/{old => new}/suffix"-> rename with common prefix/suffix
-function splitRename(field: string): { from: string; to: string } {
-  const braceIdx = field.indexOf("{");
-  if (braceIdx !== -1) {
-    const closeIdx = field.indexOf("}", braceIdx);
-    if (closeIdx === -1) return { from: field, to: field };
-    const prefix = field.slice(0, braceIdx);
-    const suffix = field.slice(closeIdx + 1);
-    const inner = field.slice(braceIdx + 1, closeIdx);
-    const [fromInner, toInner] = inner.split(" => ");
-    const from = (prefix + (fromInner ?? "") + suffix).replace(/\/\//g, "/");
-    const to = (prefix + (toInner ?? "") + suffix).replace(/\/\//g, "/");
-    return { from, to };
-  }
-  const arrowIdx = field.indexOf(" => ");
-  if (arrowIdx !== -1) {
-    return { from: field.slice(0, arrowIdx), to: field.slice(arrowIdx + 4) };
-  }
-  return { from: field, to: field };
-}
-
-interface RawChange {
-  from: string;
-  to: string;
-  added: number;
-  removed: number;
-}
-
-interface RawCommit {
-  hash: string;
-  ts: number;
-  author: string;
-  subject: string;
-  changes: RawChange[];
-}
-
-const commitsRaw: RawCommit[] = [];
-let cur: RawCommit | null = null;
-
-for (const line of raw.split("\n")) {
-  if (!line) continue;
-  if (line.startsWith("C\t")) {
-    if (cur) commitsRaw.push(cur);
-    const [, hash, ts, author, ...rest] = line.split("\t");
-    cur = {
-      hash,
-      ts: Number(ts) * 1000,
-      author: author || "unknown",
-      subject: rest.join("\t") || "",
-      changes: [],
-    };
-    continue;
-  }
-  if (!cur) continue;
-  const parts = line.split("\t");
-  if (parts.length < 3) continue;
-  const added = parts[0] === "-" ? 0 : Number(parts[0]) || 0;
-  const removed = parts[1] === "-" ? 0 : Number(parts[1]) || 0;
-  const pathField = parts.slice(2).join("\t");
-  const { from, to } = splitRename(pathField);
-  cur.changes.push({ from, to, added, removed });
-}
-if (cur) commitsRaw.push(cur);
-
+const commitsRaw: RawCommit[] = walkGitLog({ repo: REPO });
 console.log(`[extract] parsed ${commitsRaw.length} commits`);
 
 // ────────────────────────────────────────────────────────────────
