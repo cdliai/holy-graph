@@ -1,6 +1,7 @@
 {
   "name": "@cdli/holy-graph",
-  "version": "0.1.0",
+  "version": "0.1.0-phase-0",
+  "private": true,
   "description": "A 3D visualization that replays a codebase's git history commit by commit.",
   "keywords": [
     "git",
@@ -13,10 +14,10 @@
   "homepage": "https://holygraph.cdli.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CDLI/holy-graph.git"
+    "url": "git+https://github.com/cdliai/holy-graph.git"
   },
   "bugs": {
-    "url": "https://github.com/CDLI/holy-graph/issues"
+    "url": "https://github.com/cdliai/holy-graph/issues"
   },
   "license": "SEE LICENSE IN LICENSE",
   "author": "Fatih Burak Karagöz <higlited@gmail.com> (CDLI)",

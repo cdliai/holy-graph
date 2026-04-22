@@ -64,4 +64,4 @@ Drag to orbit · scroll to zoom · right-drag to pan · play/scrub from the HUD 
 
 ## Author
 
-Built by [Fatih Burak Karagöz](https://github.com/CDLI) as part of [CDLI](https://cdli.ai) — *Intelligence for Developers · Insights for Products · Impact for Business.*
+Built by Fatih Burak Karagöz as part of [CDLI](https://cdli.ai) — *Intelligence for Developers · Insights for Products · Impact for Business.* Source on [github.com/cdliai/holy-graph](https://github.com/cdliai/holy-graph).
