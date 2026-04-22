@@ -1,6 +1,7 @@
 import { Graph, type HoverInfo } from "./graph";
 import { Replay } from "./state";
 import type { Dataset } from "./types";
+import { SCHEMA_VERSION } from "./schema";
 
 const $ = <T extends HTMLElement>(sel: string): T => {
   const el = document.querySelector<T>(sel);
@@ -28,7 +29,13 @@ const tooltip = $<HTMLDivElement>("#tooltip");
 async function loadData(): Promise<Dataset> {
   const res = await fetch("/data.json", { cache: "no-store" });
   if (!res.ok) throw new Error(`failed to load data.json: ${res.status}`);
-  return res.json();
+  const json = await res.json();
+  if (json?.schemaVersion !== SCHEMA_VERSION) {
+    throw new Error(
+      `this viewer requires schemaVersion ${SCHEMA_VERSION} (got ${json?.schemaVersion}). upgrade the renderer.`,
+    );
+  }
+  return json as Dataset;
 }
 
 function escapeHtml(s: string): string {
