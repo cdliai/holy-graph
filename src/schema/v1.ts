@@ -2,8 +2,12 @@
 // Schema version 1 — the first stable data.json contract.
 // Spec §9: any breaking change bumps this integer; renderer supports
 // current + previous major.
+//
+// SCHEMA_VERSION lives in ./version.mjs so both the TS renderer and the
+// .mjs extract pipeline import the same source of truth.
 
-export const SCHEMA_VERSION = 1 as const;
+export { SCHEMA_VERSION } from "./version.mjs";
+import { SCHEMA_VERSION } from "./version.mjs";
 
 export interface Cluster {
   id: string;

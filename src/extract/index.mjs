@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SCHEMA_VERSION } from "../schema/version.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Config
@@ -407,7 +408,7 @@ clusterEdges.sort((a, b) => b[2] - a[2]);
 mkdirSync(dirname(OUT), { recursive: true });
 
 const out = {
-  schemaVersion: 1,
+  schemaVersion: SCHEMA_VERSION,
   meta: {
     repo: REPO,
     generatedAt: new Date().toISOString(),

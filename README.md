@@ -42,7 +42,9 @@ Pre-rendered animations of well-known codebases live at [holygraph.cdli.ai](http
 
 ## Configuration
 
-Knobs live in `holy-graph.config.js` (see `src/config/schema.ts` for the full list). Common ones:
+> Config-file support (`holy-graph.config.js`) ships in v1.0. Until then, edit the `const` declarations at the top of `src/extract/index.mjs` to tune extraction.
+
+Knobs (once the config loader lands in v1.0, these live in `holy-graph.config.js`):
 
 | Setting | Effect |
 | --- | --- |
