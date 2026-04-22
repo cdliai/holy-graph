@@ -1,6 +1,6 @@
 import { Graph, type HoverInfo } from "./graph";
 import { Replay } from "./state";
-import type { Dataset } from "./types";
+import type { Dataset } from "./schema";
 import { SCHEMA_VERSION } from "./schema";
 
 const $ = <T extends HTMLElement>(sel: string): T => {

@@ -21,7 +21,7 @@ import {
   forceY,
   forceZ,
 } from "d3-force-3d";
-import type { Dataset, FileMeta, Cluster } from "./types";
+import type { Dataset, FileMeta, Cluster } from "./schema";
 import type { Replay, CommitEvent } from "./state";
 
 // ── tunables ────────────────────────────────────────────────────
