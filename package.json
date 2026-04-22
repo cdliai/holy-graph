@@ -1,8 +1,34 @@
 {
-  "name": "track-animation",
-  "private": true,
+  "name": "@cdli/holy-graph",
   "version": "0.1.0",
+  "description": "A 3D visualization that replays a codebase's git history commit by commit.",
+  "keywords": [
+    "git",
+    "visualization",
+    "codebase",
+    "3d",
+    "three.js",
+    "cli"
+  ],
+  "homepage": "https://holygraph.cdli.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CDLI/holy-graph.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CDLI/holy-graph/issues"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Fatih Burak Karagöz <higlited@gmail.com> (CDLI)",
   "type": "module",
+  "bin": {
+    "holy-graph": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "extract": "node pipeline/extract.mjs",
     "dev": "vite",
