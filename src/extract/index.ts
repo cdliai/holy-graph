@@ -20,8 +20,9 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_VERSION } from "../schema/version.mjs";
-import type { Commit, FileMeta, ClusterEdge } from "../schema/v1.js";
+import type { ClusterEdge } from "../schema/v1.js";
 import { walkGitLog, type RawCommit } from "./walker.js";
+import { DEFAULT_DELTA_CONFIG, computeDeltas } from "./deltas.js";
 
 // ────────────────────────────────────────────────────────────────
 // Config
@@ -31,30 +32,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
 const REPO = process.env.REPO ?? resolve(ROOT, "../monorepo");
 const OUT = resolve(ROOT, "public/data.json");
-
-// Drop commits that touch more than this many files — usually bulk rewrites
-// that would drown the co-change signal.
-const MAX_FILES_PER_COMMIT = 80;
-
-// Only keep files that were meaningfully touched at least this many times.
-const MIN_FILE_TOTAL_TOUCHES = 2;
-
-// Skip paths matching any of these
-const EXCLUDE = [
-  /(^|\/)node_modules(\/|$)/,
-  /(^|\/)dist(\/|$)/,
-  /(^|\/)build(\/|$)/,
-  /(^|\/)coverage(\/|$)/,
-  /(^|\/)\.next(\/|$)/,
-  /(^|\/)\.svelte-kit(\/|$)/,
-  /(^|\/)\.turbo(\/|$)/,
-  /(^|\/)\.vercel(\/|$)/,
-  /(^|\/)generated(\/|$)/,
-  /\.min\.(js|css)$/,
-  /\.(png|jpg|jpeg|gif|webp|svg|ico|mp4|mov|webm|woff2?|ttf|eot|pdf|zip|gz|tgz|wasm)$/i,
-  /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|Cargo\.lock)$/,
-  /(^|\/)\.DS_Store$/,
-];
 
 // Cluster colors — assigned by size rank (largest clusters get the more vivid hues)
 const CLUSTER_PALETTE = [
@@ -71,19 +48,6 @@ const DISK_MIN_RADIUS = 90;
 // ────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────
-
-function isExcluded(path: string): boolean {
-  for (const re of EXCLUDE) if (re.test(path)) return true;
-  return false;
-}
-
-function clusterOf(path: string): string {
-  const parts = path.split("/");
-  const head = parts[0];
-  const GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs"]);
-  if (GROUPS.has(head) && parts.length > 1) return `${head}/${parts[1]}`;
-  return head || "(root)";
-}
 
 // Lay clusters out on two concentric rings, sorted by size:
 //   • The top `MAJOR_RING_COUNT` clusters share the outer ring.
@@ -118,152 +82,8 @@ console.log(`[extract] repo: ${REPO}`);
 const commitsRaw: RawCommit[] = walkGitLog({ repo: REPO });
 console.log(`[extract] parsed ${commitsRaw.length} commits`);
 
-// ────────────────────────────────────────────────────────────────
-// Walk commits chronologically. Per-commit:
-//  - resolve renames into canonical file ids
-//  - emit the per-commit touch list
-// ────────────────────────────────────────────────────────────────
-
-// current path -> id
-const pathToId: Map<string, number> = new Map();
-
-interface InternalFile {
-  id: number;
-  path: string;
-  cluster: string;
-  firstCommitIdx: number;
-  totalTouches: number;
-  allPaths: Set<string>;
-}
-
-const files: InternalFile[] = [];
-
-function ensureFile(path: string, commitIdx: number): number {
-  let id = pathToId.get(path);
-  if (id === undefined) {
-    id = files.length;
-    files.push({
-      id,
-      path,
-      cluster: clusterOf(path),
-      firstCommitIdx: commitIdx,
-      totalTouches: 0,
-      allPaths: new Set([path]),
-    });
-    pathToId.set(path, id);
-  }
-  return id;
-}
-
-function renameFile(from: string, to: string): void {
-  if (from === to) return;
-  const id = pathToId.get(from);
-  if (id === undefined) return;
-  pathToId.delete(from);
-  pathToId.set(to, id);
-  const f = files[id];
-  f.path = to;
-  f.cluster = clusterOf(to);
-  f.allPaths.add(to);
-}
-
-const commitsOut: Commit[] = [];
-
-let kept = 0;
-let dropped = 0;
-for (let ci = 0; ci < commitsRaw.length; ci++) {
-  const c = commitsRaw[ci];
-  const effective = c.changes.filter(
-    (ch) => !isExcluded(ch.from) && !isExcluded(ch.to),
-  );
-  if (effective.length === 0) {
-    dropped++;
-    continue;
-  }
-  if (effective.length > MAX_FILES_PER_COMMIT) {
-    dropped++;
-    continue;
-  }
-
-  const touches: Array<[number, number, number]> = [];
-  const seen: Set<number> = new Set();
-  for (const ch of effective) {
-    if (ch.from !== ch.to) {
-      if (!pathToId.has(ch.from) && !pathToId.has(ch.to)) {
-        ensureFile(ch.from, ci);
-      }
-      if (pathToId.has(ch.from)) renameFile(ch.from, ch.to);
-    }
-    const id = ensureFile(ch.to, ci);
-    if (seen.has(id)) continue; // same file listed twice in one commit
-    seen.add(id);
-    files[id].totalTouches += 1;
-    touches.push([id, ch.added, ch.removed]);
-  }
-
-  commitsOut.push({
-    sha: c.hash,
-    short: c.hash.slice(0, 7),
-    ts: c.ts,
-    date: new Date(c.ts).toISOString().slice(0, 10),
-    author: c.author,
-    msg: c.subject.slice(0, 200),
-    touches,
-  });
-  kept++;
-}
-
-console.log(`[extract] kept ${kept} commits, dropped ${dropped}`);
-
-// ────────────────────────────────────────────────────────────────
-// Prune files with too few touches; remap ids; update firstCommitIdx
-// ────────────────────────────────────────────────────────────────
-
-const remap: Map<number, number> = new Map();
-const keptFiles: FileMeta[] = [];
-for (const f of files) {
-  if (f.totalTouches < MIN_FILE_TOTAL_TOUCHES) continue;
-  const newId = keptFiles.length;
-  remap.set(f.id, newId);
-  keptFiles.push({
-    id: newId,
-    path: f.path,
-    cluster: f.cluster,
-    firstCommitIdx: -1, // fix below after commit filtering
-    totalTouches: f.totalTouches,
-    aliases: f.allPaths.size > 1 ? Array.from(f.allPaths) : undefined,
-  });
-}
-
-// Filter touches in every commit; also track which commit index each surviving
-// file first appears in (post-pruning, post-filter).
-for (let ci = 0; ci < commitsOut.length; ci++) {
-  const c = commitsOut[ci];
-  const filtered: Array<[number, number, number]> = [];
-  for (const [oldId, added, removed] of c.touches) {
-    const nid = remap.get(oldId);
-    if (nid === undefined) continue;
-    filtered.push([nid, added, removed]);
-    if (keptFiles[nid].firstCommitIdx === -1) {
-      keptFiles[nid].firstCommitIdx = ci;
-    }
-  }
-  c.touches = filtered;
-}
-
-// Drop commits that ended up empty after pruning — they're no-ops for the graph.
-const commitsFinal: Commit[] = [];
-const commitIdxRemap: Map<number, number> = new Map();
-for (let ci = 0; ci < commitsOut.length; ci++) {
-  const c = commitsOut[ci];
-  if (c.touches.length === 0) continue;
-  commitIdxRemap.set(ci, commitsFinal.length);
-  commitsFinal.push(c);
-}
-// Fix firstCommitIdx on files to point into commitsFinal
-for (const f of keptFiles) {
-  f.firstCommitIdx = commitIdxRemap.get(f.firstCommitIdx) ?? 0;
-}
+const { files: keptFiles, commits: commitsFinal } = computeDeltas(commitsRaw, DEFAULT_DELTA_CONFIG);
+console.log(`[extract] kept ${commitsFinal.length} commits, dropped ${commitsRaw.length - commitsFinal.length}`);
 
 // ────────────────────────────────────────────────────────────────
 // Build clusters with disk positions
@@ -353,8 +173,8 @@ const out = {
     lastCommit: new Date(commitsFinal[commitsFinal.length - 1]?.ts ?? 0).toISOString(),
     diskRadius,
     config: {
-      MAX_FILES_PER_COMMIT,
-      MIN_FILE_TOTAL_TOUCHES,
+      maxFilesPerCommit: DEFAULT_DELTA_CONFIG.maxFilesPerCommit,
+      minFileTotalTouches: DEFAULT_DELTA_CONFIG.minFileTotalTouches,
     },
   },
   clusters,
