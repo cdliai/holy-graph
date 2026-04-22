@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codebase Evolution — Semantic 3D</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <aside id="hud">
+      <header>
+        <h1>Codebase Evolution</h1>
+        <div class="subtitle" id="subtitle">loading…</div>
+      </header>
+
+      <section class="commit-panel">
+        <div class="commit-row">
+          <span id="stat-commit" class="commit-sha">—</span>
+          <span id="stat-date" class="commit-date">—</span>
+        </div>
+        <div id="stat-message" class="commit-msg"></div>
+        <div id="stat-author" class="commit-author"></div>
+      </section>
+
+      <section class="stats">
+        <div><label>Live files</label><span id="stat-nodes">0</span></div>
+        <div><label>Co-change links</label><span id="stat-edges">0</span></div>
+        <div><label>Cross-cluster</label><span id="stat-bridges">0</span></div>
+        <div><label>Progress</label><span id="stat-progress">0%</span></div>
+      </section>
+
+      <section class="panel-title">Hot files <span class="hint">current activity</span></section>
+      <ol class="hotlist" id="hotlist"></ol>
+
+      <section class="panel-title">Modules <span class="hint">click to focus · hover to isolate</span></section>
+      <section class="legend" id="legend"></section>
+
+      <section class="controls">
+        <button id="btn-play" type="button">▶ Play</button>
+        <input id="scrubber" type="range" min="0" max="0" step="1" value="0" />
+        <label class="speed">
+          Speed
+          <select id="speed">
+            <option value="4">4 c/s</option>
+            <option value="10">10 c/s</option>
+            <option value="25" selected>25 c/s</option>
+            <option value="60">60 c/s</option>
+            <option value="120">120 c/s</option>
+            <option value="250">250 c/s</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="tip">
+        drag = orbit · scroll = zoom · right-drag = pan · hover node or beacon for details · double-click a module to reset focus
+      </section>
+    </aside>
+
+    <div id="tooltip" hidden></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
