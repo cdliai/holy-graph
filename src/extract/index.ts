@@ -149,7 +149,6 @@ export async function extract(opts: ExtractOptions): Promise<Dataset> {
 // ────────────────────────────────────────────────────────────────
 
 const invokedAsScript =
-  process.argv[1] === fileURLToPath(import.meta.url) ||
   process.argv[1]?.endsWith("/extract/index.ts") === true ||
   process.argv[1]?.endsWith("/extract/index.js") === true;
 
