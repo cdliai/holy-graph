@@ -19,8 +19,6 @@ Opens the visualization in your browser at http://localhost:5173. To export a sh
 npx @cdli/holy-graph --out viz.html
 ```
 
-> **Note:** The `npx` binary ships in v1.0. During Phase 0 development, use `pnpm extract && pnpm dev` from a local clone.
-
 ## Gallery
 
 Pre-rendered animations of well-known codebases live at [holygraph.cdli.ai](https://holygraph.cdli.ai).
@@ -42,17 +40,30 @@ Pre-rendered animations of well-known codebases live at [holygraph.cdli.ai](http
 
 ## Configuration
 
-> Config-file support (`holy-graph.config.js`) ships in v1.0. Until then, edit the `const` declarations at the top of `src/extract/index.mjs` to tune extraction.
+Drop a `holy-graph.config.js` (or `.mjs` / `.ts`) next to your repo:
 
-Knobs (once the config loader lands in v1.0, these live in `holy-graph.config.js`):
+```js
+// holy-graph.config.mjs
+export default {
+  port: 3000,
+  extract: {
+    maxFilesPerCommit: 40,
+    minFileTotalTouches: 3,
+    // exclude: [/\/fixtures\//, /\.generated\.ts$/],
+  },
+};
+```
+
+All keys are optional. CLI flags (`--port`, `--since`, `--config`) override config values.
+
+### Available knobs
 
 | Setting | Effect |
 | --- | --- |
-| `MAX_FILES_PER_COMMIT` | drop bulk-rewrite commits |
-| `MIN_FILE_TOTAL_TOUCHES` | prune rarely-touched files |
-| `EXCLUDE` | path regexes to ignore |
-| `HALF_LIFE_ACT_DAYS` | how fast a file's glow fades |
-| `HALF_LIFE_EDGE_DAYS` | how fast co-change ties fade |
+| `port` | Dev server port (default: 5173, falls back if busy) |
+| `extract.maxFilesPerCommit` | drop bulk-rewrite commits (default: 80) |
+| `extract.minFileTotalTouches` | prune rarely-touched files (default: 2) |
+| `extract.exclude` | path regexes to ignore (adds to defaults) |
 
 ## Controls
 
