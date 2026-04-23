@@ -33,7 +33,9 @@
   "scripts": {
     "extract": "tsx src/extract/index.ts",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm build:renderer && pnpm build:cli",
+    "build:renderer": "vite build",
+    "build:cli": "tsup && chmod +x dist/cli/index.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
