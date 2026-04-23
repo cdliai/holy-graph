@@ -1,6 +1,6 @@
 {
   "name": "@cdli/holy-graph",
-  "version": "0.1.0-phase-0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "A 3D visualization that replays a codebase's git history commit by commit.",
   "keywords": [
