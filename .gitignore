@@ -3,3 +3,5 @@ dist
 public/data.json
 .DS_Store
 *.log
+*.tgz
+*.tgz

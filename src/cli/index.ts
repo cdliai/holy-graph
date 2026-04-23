@@ -34,7 +34,7 @@ EXAMPLES
   npx @cdli/holy-graph --since 2024-01-01      # recent commits only`;
 
 // Hardcoded during build; bumped alongside package.json.
-const VERSION = "1.0.0-rc.1";
+const VERSION = "1.0.0";
 
 async function main(argv: string[]): Promise<number> {
   let parsed;
