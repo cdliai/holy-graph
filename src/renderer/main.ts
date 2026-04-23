@@ -27,16 +27,33 @@ const legendEl = $<HTMLElement>("#legend");
 const hotlistEl = $<HTMLOListElement>("#hotlist");
 const tooltip = $<HTMLDivElement>("#tooltip");
 
+const INLINE_DATA_ELEMENT_ID = "holy-graph-data";
+
+function parseSchemaVersion(json: unknown): asserts json is Dataset {
+  const v = (json as { schemaVersion?: unknown })?.schemaVersion;
+  if (v !== SCHEMA_VERSION) {
+    throw new Error(
+      `this viewer requires schemaVersion ${SCHEMA_VERSION} (got ${v}). upgrade the renderer.`,
+    );
+  }
+}
+
 async function loadData(): Promise<Dataset> {
+  // Inline mode — the exported single-file HTML embeds data as
+  // <script type="application/json" id="holy-graph-data">…</script>.
+  const inline = document.getElementById(INLINE_DATA_ELEMENT_ID);
+  if (inline !== null && inline.textContent !== null && inline.textContent.length > 0) {
+    const json = JSON.parse(inline.textContent);
+    parseSchemaVersion(json);
+    return json;
+  }
+
+  // Dev / serve mode — fetch from the local server.
   const res = await fetch("/data.json", { cache: "no-store" });
   if (!res.ok) throw new Error(`failed to load data.json: ${res.status}`);
   const json = await res.json();
-  if (json?.schemaVersion !== SCHEMA_VERSION) {
-    throw new Error(
-      `this viewer requires schemaVersion ${SCHEMA_VERSION} (got ${json?.schemaVersion}). upgrade the renderer.`,
-    );
-  }
-  return json as Dataset;
+  parseSchemaVersion(json);
+  return json;
 }
 
 function escapeHtml(s: string): string {
