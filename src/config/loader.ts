@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { errors } from "../cli/errors.js";
 import { type Config, mergeConfig } from "./schema.js";
 
 const KNOWN_FILENAMES = [
@@ -38,7 +39,7 @@ export async function loadConfig(cwd: string, explicit?: string): Promise<Loaded
   if (explicit !== undefined) {
     sourcePath = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
     if (!existsSync(sourcePath)) {
-      throw new Error(`holy-graph: config file not found: ${sourcePath}`);
+      throw errors.configParseError(sourcePath, "config file not found");
     }
   } else {
     for (const name of KNOWN_FILENAMES) {
@@ -60,17 +61,15 @@ export async function loadConfig(cwd: string, explicit?: string): Promise<Loaded
     const mod = await import(pathToFileURL(sourcePath).href);
     loaded = (mod as { default?: unknown }).default ?? mod;
   } catch (err) {
-    throw new Error(
-      `holy-graph: failed to load ${sourcePath}: ${(err as Error).message}`,
-    );
+    throw errors.configParseError(sourcePath, (err as Error).message);
   }
 
   if (loaded !== null && typeof loaded === "object") {
     for (const key of Object.keys(loaded as object)) {
       if (!KNOWN_KEYS.has(key as keyof Config)) {
-        throw new Error(
-          `holy-graph: unknown config key "${key}" in ${sourcePath}. ` +
-          `Known keys: ${[...KNOWN_KEYS].join(", ")}.`,
+        throw errors.configParseError(
+          sourcePath,
+          `unknown config key "${key}". Known keys: ${[...KNOWN_KEYS].join(", ")}.`,
         );
       }
     }
