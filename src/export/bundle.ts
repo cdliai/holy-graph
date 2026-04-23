@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 
 import type { Dataset } from "../schema/v1.js";
 import { injectDataIntoHtml } from "./template.js";
+import { errors } from "../cli/errors.js";
 
 export interface ExportOptions {
   /** Absolute path to write the single-file HTML to. */
@@ -21,15 +22,11 @@ export interface ExportOptions {
 export function exportHtml(data: Dataset, opts: ExportOptions): { bytes: number } {
   const rendererHtmlPath = opts.rendererHtmlPath ?? resolveDefaultRendererHtml();
   if (!existsSync(rendererHtmlPath)) {
-    throw new Error(
-      `holy-graph: renderer build not found at ${rendererHtmlPath}. Run "pnpm build" first.`,
-    );
+    throw errors.rendererMissing(rendererHtmlPath);
   }
 
   if (existsSync(opts.outPath) && !opts.force) {
-    throw new Error(
-      `holy-graph: ${opts.outPath} already exists. pass --force to overwrite.`,
-    );
+    throw errors.exportExists(opts.outPath);
   }
 
   const html = readFileSync(rendererHtmlPath, "utf8");
