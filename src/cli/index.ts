@@ -76,6 +76,9 @@ async function main(argv: string[]): Promise<number> {
 
   const port = parsePort(parsed.values.port, config.port);
 
+  // CLI --since flag overrides config.since; absent flag falls back to config.
+  const since = parsed.values.since ?? config.since;
+
   if (typeof parsed.values.out === "string" && parsed.values.out.length > 0) {
     // Export mode
     const outPath = resolve(parsed.values.out);
@@ -83,7 +86,7 @@ async function main(argv: string[]): Promise<number> {
       repo,
       outPath,
       force: parsed.values.force === true,
-      since: parsed.values.since,
+      since,
       config,
     });
     process.stdout.write(
@@ -96,7 +99,7 @@ async function main(argv: string[]): Promise<number> {
   const { url, close } = await runServe({
     repo,
     port,
-    since: parsed.values.since,
+    since,
     config,
   });
   process.stdout.write(`[holy-graph] serving at ${url}\n`);

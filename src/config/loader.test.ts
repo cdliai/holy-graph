@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { loadConfig } from "./loader.js";
+import { CliError } from "../cli/errors.js";
 import { DEFAULT_DELTA_CONFIG } from "../extract/deltas.js";
 
 let dir: string | undefined;
@@ -64,19 +65,23 @@ describe("loadConfig", () => {
     expect(cfg.port).toBe(9999);
   });
 
-  it("throws when an explicit --config path does not exist", async () => {
+  it("throws CliError when an explicit --config path does not exist", async () => {
     const cwd = tmp();
-    await expect(loadConfig(cwd, "/nowhere/missing.config.mjs")).rejects.toThrow(
-      /config file not found/,
-    );
+    const err = await loadConfig(cwd, "/nowhere/missing.config.mjs").catch((e) => e);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("CONFIG_PARSE_ERROR");
+    expect(err.message).toMatch(/config file not found/);
   });
 
-  it("rejects unknown top-level keys", async () => {
+  it("rejects unknown top-level keys as CliError", async () => {
     const cwd = tmp();
     writeFileSync(
       join(cwd, "holy-graph.config.mjs"),
       `export default { foobar: 123 };\n`,
     );
-    await expect(loadConfig(cwd)).rejects.toThrow(/unknown config key "foobar"/);
+    const err = await loadConfig(cwd).catch((e) => e);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("CONFIG_PARSE_ERROR");
+    expect(err.message).toMatch(/unknown config key "foobar"/);
   });
 });
