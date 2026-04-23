@@ -1,0 +1,63 @@
+# @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
+# Auto-publish to npm on v* tag push.
+#
+# Release flow:
+#   1. Bump "version" in package.json AND VERSION in src/cli/index.ts.
+#   2. git commit -m "chore(release): vX.Y.Z" && git push
+#   3. git tag vX.Y.Z && git push --tags
+#   4. This workflow runs: install → build → test → publish.
+#
+# Requires repo secret NPM_TOKEN — a Classic Automation token on npm
+# (bypasses 2FA by design). Generate at:
+#   https://www.npmjs.com/settings/cdli/tokens
+# Add at:
+#   https://github.com/cdliai/holy-graph/settings/secrets/actions
+
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # needed for npm provenance attestations
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Assert package.json version matches tag
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Publish
+        run: pnpm publish --access public --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
