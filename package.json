@@ -37,7 +37,7 @@
     "build:renderer": "vite build",
     "build:cli": "tsup && chmod +x dist/cli/index.js",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "pnpm build && vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
