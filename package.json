@@ -1,7 +1,6 @@
 {
   "name": "@cdli/holy-graph",
   "version": "1.0.0-rc.1",
-  "private": true,
   "description": "A 3D visualization that replays a codebase's git history commit by commit.",
   "keywords": [
     "git",
@@ -38,7 +37,8 @@
     "build:cli": "tsup && chmod +x dist/cli/index.js",
     "preview": "vite preview",
     "test": "pnpm build && vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "dependencies": {
     "d3-force-3d": "^3.0.5",
