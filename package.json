@@ -25,7 +25,8 @@
     "holy-graph": "./dist/cli/index.js"
   },
   "files": [
-    "dist",
+    "dist/cli",
+    "dist/index.html",
     "LICENSE",
     "README.md"
   ],
