@@ -47,6 +47,11 @@ describe("clusterOf", () => {
     expect(clusterOf("packages/core/lib.ts")).toBe("packages/core");
   });
 
+  it("returns two levels for nested code roots (src/sub, lib/sub)", () => {
+    expect(clusterOf("src/cli/index.ts")).toBe("src/cli");
+    expect(clusterOf("lib/parser/lexer.ts")).toBe("lib/parser");
+  });
+
   it("falls back to (root) for bare files", () => {
     expect(clusterOf("README.md")).toBe("README.md");
     expect(clusterOf("")).toBe("(root)");

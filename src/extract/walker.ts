@@ -75,29 +75,44 @@ export function walkGitLog(opts: WalkOptions): RawCommit[] {
 
   const commits: RawCommit[] = [];
   let cur: RawCommit | null = null;
+  let lineStart = 0;
+  const rawLen = raw.length;
 
-  for (const line of raw.split("\n")) {
+  while (lineStart < rawLen) {
+    let lineEnd = raw.indexOf("\n", lineStart);
+    if (lineEnd === -1) lineEnd = rawLen;
+    const line = raw.substring(lineStart, lineEnd);
+    lineStart = lineEnd + 1;
+
     if (!line) continue;
-    if (line.startsWith("C\t")) {
+    if (line.charCodeAt(0) === 67 && line.charCodeAt(1) === 9) { // "C\t"
       if (cur) commits.push(cur);
-      const [, hash, ts, author, ...rest] = line.split("\t");
+      const p1 = line.indexOf("\t", 2);
+      const p2 = line.indexOf("\t", p1 + 1);
+      const p3 = line.indexOf("\t", p2 + 1);
       cur = {
-        hash,
-        ts: Number(ts) * 1000,
-        author: author || "unknown",
-        subject: rest.join("\t") || "",
+        hash: line.substring(2, p1),
+        ts: Number(line.substring(p1 + 1, p2)) * 1000,
+        author: line.substring(p2 + 1, p3) || "unknown",
+        subject: p3 !== -1 ? line.substring(p3 + 1) : "",
         changes: [],
       };
       continue;
     }
     if (!cur) continue;
-    const parts = line.split("\t");
-    if (parts.length < 3) continue;
-    const added = parts[0] === "-" ? 0 : Number(parts[0]) || 0;
-    const removed = parts[1] === "-" ? 0 : Number(parts[1]) || 0;
-    const pathField = parts.slice(2).join("\t");
+    const t1 = line.indexOf("\t");
+    const t2 = line.indexOf("\t", t1 + 1);
+    if (t1 === -1 || t2 === -1) continue;
+    const addedStr = line.substring(0, t1);
+    const removedStr = line.substring(t1 + 1, t2);
+    const pathField = line.substring(t2 + 1);
     const { from, to } = splitRename(pathField);
-    cur.changes.push({ from, to, added, removed });
+    cur.changes.push({
+      from,
+      to,
+      added: addedStr === "-" ? 0 : Number(addedStr) || 0,
+      removed: removedStr === "-" ? 0 : Number(removedStr) || 0,
+    });
   }
   if (cur) commits.push(cur);
 

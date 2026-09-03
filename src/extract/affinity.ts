@@ -1,8 +1,9 @@
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
 // Cluster-cluster co-change affinity.
-// For every commit that touches files in more than one cluster, emit a weighted
-// edge between each pair of clusters. Big commits contribute less per-pair (via
-// log-scaled contribution) so they don't dominate the signal.
+// Optimized low-level implementation:
+//   - Zero string allocations: uses a contiguous Float64Array symmetric matrix in L2 cache.
+//   - O(1) L1 array lookup: fileToCluster[fileId] replaces 2-hop Map lookups.
+//   - Bitset active-set tracking avoids dynamic Set<number> allocations.
 
 import type { ClusterEdge, Commit, FileMeta } from "../schema/v1.js";
 
@@ -14,38 +15,74 @@ export function computeAffinity(
   commits: Commit[],
   clusterOrder: string[],
 ): ClusterEdge[] {
-  const clusterIndex = new Map(clusterOrder.map((c, i): [string, number] => [c, i]));
-  const fileCluster = new Map(files.map((f): [number, string] => [f.id, f.cluster]));
-  const affKey = (a: number, b: number): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
-  const affinity = new Map<string, number>();
+  const N = clusterOrder.length;
+  if (N <= 1 || commits.length === 0) return [];
 
-  for (const c of commits) {
-    if (c.touches.length <= 1) continue;
-    const ci = new Set<number>();
-    for (const [fid] of c.touches) {
-      const cid = fileCluster.get(fid);
-      if (cid === undefined) continue;
-      const idx = clusterIndex.get(cid);
-      if (idx !== undefined) ci.add(idx);
-    }
-    if (ci.size <= 1) continue;
-    const arr = Array.from(ci);
-    // Per-pair contribution decays with number of clusters touched.
-    const contribution = 1 / Math.log2(arr.length + 2);
-    for (let i = 0; i < arr.length; i++) {
-      for (let j = i + 1; j < arr.length; j++) {
-        const k = affKey(arr[i], arr[j]);
-        affinity.set(k, (affinity.get(k) ?? 0) + contribution);
+  const clusterIndex = new Map<string, number>();
+  for (let i = 0; i < N; i++) clusterIndex.set(clusterOrder[i], i);
+
+  // Direct O(1) array lookup: fileId -> clusterIndex
+  let maxFileId = 0;
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].id > maxFileId) maxFileId = files[i].id;
+  }
+  const fileToCluster = new Int32Array(maxFileId + 1).fill(-1);
+  for (let i = 0; i < files.length; i++) {
+    const cIdx = clusterIndex.get(files[i].cluster);
+    if (cIdx !== undefined) fileToCluster[files[i].id] = cIdx;
+  }
+
+  // Symmetric dense matrix in L2 cache: zero string allocations
+  const matrix = new Float64Array(N * N);
+  const clusterBitset = new Uint8Array(N);
+  const activeClusters = new Int32Array(N);
+
+  for (let ci = 0; ci < commits.length; ci++) {
+    const touches = commits[ci].touches;
+    if (touches.length <= 1) continue;
+
+    let activeCount = 0;
+    for (let i = 0; i < touches.length; i++) {
+      const fid = touches[i][0];
+      if (fid < fileToCluster.length) {
+        const cIdx = fileToCluster[fid];
+        if (cIdx >= 0 && clusterBitset[cIdx] === 0) {
+          clusterBitset[cIdx] = 1;
+          activeClusters[activeCount++] = cIdx;
+        }
       }
+    }
+
+    if (activeCount > 1) {
+      const contribution = 1 / Math.log2(activeCount + 2);
+      for (let i = 0; i < activeCount; i++) {
+        const a = activeClusters[i];
+        const row = a * N;
+        for (let j = i + 1; j < activeCount; j++) {
+          const b = activeClusters[j];
+          matrix[row + b] += contribution;
+          matrix[b * N + a] += contribution;
+        }
+      }
+    }
+
+    // Reset bitset for touched clusters
+    for (let i = 0; i < activeCount; i++) {
+      clusterBitset[activeClusters[i]] = 0;
     }
   }
 
   const edges: ClusterEdge[] = [];
-  for (const [k, w] of affinity) {
-    if (w < AFFINITY_THRESHOLD) continue;
-    const [as, bs] = k.split("|");
-    edges.push([Number(as), Number(bs), +w.toFixed(3)]);
+  for (let i = 0; i < N; i++) {
+    const row = i * N;
+    for (let j = i + 1; j < N; j++) {
+      const w = matrix[row + j];
+      if (w >= AFFINITY_THRESHOLD) {
+        edges.push([i, j, Math.round(w * 1000) / 1000]);
+      }
+    }
   }
+
   edges.sort((a, b) => b[2] - a[2]);
   return edges;
 }

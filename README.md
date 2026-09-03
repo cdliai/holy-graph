@@ -9,19 +9,58 @@ Holy Graph turns a git repository into a 3D scene: every source file is a glowin
 ## Quick start
 
 ```bash
-# in any git repository
+# In any git repository (or subdirectory)
 npx @cdli/holy-graph
 ```
 
-Opens the visualization in your browser at http://localhost:5173. To export a shareable single-file HTML:
+Zero configuration required. Analyzes commit history 100% locally on your machine, auto-discovers repository roots, and launches the 3D visualization in your browser at `http://localhost:5173`.
+
+### Single-file HTML export
+
+Export a self-contained, offline HTML file to share with teammates or embed in architecture reviews:
 
 ```bash
 npx @cdli/holy-graph --out viz.html
 ```
 
+## AI-Native: Model Context Protocol (MCP) Server
+
+Holy Graph exposes its semantic co-change graph to AI coding assistants (Cursor, Claude Code, Antigravity) via MCP:
+
+```bash
+npx @cdli/holy-graph mcp
+```
+
+### Adding to Cursor (`.cursor/mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "holy-graph": {
+      "command": "npx",
+      "args": ["-y", "@cdli/holy-graph", "mcp"]
+    }
+  }
+}
+```
+
+### Adding to Claude Code
+
+```bash
+claude mcp add holy-graph -- npx -y @cdli/holy-graph mcp
+```
+
+### Available MCP Tools
+
+- **`holy_graph_get_cochange_neighbors`**: Identifies files that change in tandem with a given file (temporal coupling). Uncovers cross-module architectural bridges.
+- **`holy_graph_get_blast_radius`**: Calculates the ripple effect of modified files or current unstaged git changes across architectural modules.
+- **`holy_graph_list_hotspots`**: Ranks systemic hotspots with high churn and cross-module entanglement.
+- **`holy_graph_get_module_graph`**: High-level module hierarchy and inter-module coupling weights.
+- **`holy_graph_explain_architecture`**: Synthesizes an executive markdown architectural breakdown for LLMs.
+
 ## Gallery
 
-Pre-rendered animations of well-known codebases live at [holygraph.cdli.ai](https://holygraph.cdli.ai).
+Interactive 3D replays of well-known open-source codebases live at [holygraph.cdli.ai](https://holygraph.cdli.ai).
 
 ## What you're seeing
 

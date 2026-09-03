@@ -37,6 +37,7 @@
     "build:renderer": "vite build",
     "build:cli": "tsup && chmod +x dist/cli/index.js",
     "preview": "vite preview",
+    "build:gallery": "pnpm build:renderer && mkdir -p gallery/dist && cp dist/index.html gallery/dist/index.html",
     "test": "pnpm build && vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm build && pnpm test"
