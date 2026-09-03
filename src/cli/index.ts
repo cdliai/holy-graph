@@ -39,7 +39,7 @@ EXAMPLES
   hgraph mcp                                   # start MCP server for AI tools`;
 
 // Hardcoded during build; bumped alongside package.json.
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 /** Find top-level Git root directory, allowing invocation inside subdirectories. */
 export function findGitRoot(startDir: string): string | null {
