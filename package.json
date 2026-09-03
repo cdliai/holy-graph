@@ -22,7 +22,8 @@
   "author": "Fatih Burak Karagöz <higlited@gmail.com> (CDLI)",
   "type": "module",
   "bin": {
-    "holy-graph": "./dist/cli/index.js"
+    "holy-graph": "./dist/cli/index.js",
+    "hgraph": "./dist/cli/index.js"
   },
   "files": [
     "dist/cli",

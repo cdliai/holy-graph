@@ -12,16 +12,17 @@ import { runServe } from "./serve.js";
 import { runExport } from "./export.js";
 import { runMcp } from "./mcp.js";
 
-const USAGE = `holy-graph — 3D visualization and intelligence for codebase evolution
+const USAGE = `hgraph / holy-graph — 3D visualization and intelligence for codebase evolution
 
 USAGE
-  holy-graph [path]                  Serve the visualization for the given repo
-                                     (default: current working directory)
-  holy-graph [path] --out <file>     Export a single-file HTML
-  holy-graph mcp [path]              Start Model Context Protocol (MCP) server
+  hgraph [path]                      Serve visualization for current or target repo
+  hgraph run [path]                  Alias for serve mode
+  hgraph [path] --out <file>         Export a single-file self-contained HTML
+  hgraph mcp [path]                  Start Model Context Protocol (MCP) server
                                      for AI coding tools (Cursor, Claude, etc.)
 
 OPTIONS
+  --run              Explicitly run the dev server (default behavior)
   --out <file>       Export mode: write single-file HTML to <file>
   --force            Overwrite --out if it exists
   --port <n>         Dev server port (default: 5173, with fallback)
@@ -32,11 +33,10 @@ OPTIONS
   --help             Show this message
 
 EXAMPLES
-  npx @cdli/holy-graph                         # analyze current repo
-  npx @cdli/holy-graph ~/code/react            # analyze another repo
-  npx @cdli/holy-graph --out viz.html          # export to shareable HTML
-  npx @cdli/holy-graph --port 3000             # use port 3000
-  npx @cdli/holy-graph mcp                     # run MCP server in current repo`;
+  hgraph                                       # analyze current repo & open browser
+  hgraph ~/code/react                          # analyze another repo
+  hgraph --out viz.html                        # export to shareable HTML
+  hgraph mcp                                   # start MCP server for AI tools`;
 
 // Hardcoded during build; bumped alongside package.json.
 const VERSION = "1.0.0";
@@ -78,6 +78,7 @@ async function main(argv: string[]): Promise<number> {
       args: argv,
       allowPositionals: true,
       options: {
+        run: { type: "boolean", default: false },
         out: { type: "string" },
         force: { type: "boolean", default: false },
         port: { type: "string" },
@@ -102,7 +103,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  // MCP Mode dispatch: `holy-graph mcp [repo]`
+  // MCP Mode dispatch: `holy-graph mcp [repo]` or `hgraph mcp [repo]`
   if (parsed.positionals[0] === "mcp") {
     const repoArg = parsed.positionals[1] ?? process.cwd();
     const repo = findGitRoot(repoArg);
@@ -114,7 +115,13 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const repoArg = parsed.positionals[0] ?? process.cwd();
+  // Handle explicit "run" or "serve" positional subcommand: `hgraph run [path]`
+  let repoArg: string;
+  if (parsed.positionals[0] === "run" || parsed.positionals[0] === "serve") {
+    repoArg = parsed.positionals[1] ?? process.cwd();
+  } else {
+    repoArg = parsed.positionals[0] ?? process.cwd();
+  }
   const repo = findGitRoot(repoArg);
   if (!repo) {
     throw errors.noGitDir(resolve(repoArg));
