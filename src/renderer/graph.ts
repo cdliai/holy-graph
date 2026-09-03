@@ -25,248 +25,42 @@ import {
 import type { Dataset, FileMeta, Cluster } from "../schema";
 import type { Replay, CommitEvent } from "./state";
 
-// ── tunables ────────────────────────────────────────────────────
-const BASE_NODE_SIZE = 6;
-const SIZE_GAIN = 7; // multiplied by sqrt(activity)
+import {
+  BASE_NODE_SIZE,
+  SIZE_GAIN,
+  CLUSTER_PULL_STRENGTH,
+  ACTIVITY_Y_STRENGTH,
+  ACTIVITY_Y_GAIN,
+  LINK_DISTANCE_BASE,
+  CHARGE_STRENGTH,
+  ALPHA_DECAY,
+  ALPHA_ON_REHEAT,
+  ALPHA_SLEEP_THRESHOLD,
+  CLUSTER_LAYOUT_RADIUS,
+  BIRTH_DURATION_MS,
+  BIRTH_RING_START_SCALE,
+  BIRTH_RING_END_SCALE,
+  TOUCH_RING_DURATION_MS,
+  TOUCH_RING_END_SCALE,
+  PULSE_DURATION_MS,
+  SIGNAL_DURATION_MS,
+  SIGNAL_BASE_SIZE,
+  SIGNAL_MAX_EDGES_PER_TOUCH,
+  SIGNAL_STAGGER_MS,
+  SIGNAL_MAX_ACTIVE,
+  HIGHLIGHT_BOOST,
+  CAMERA_TILT,
+  type SimNode,
+  type SimLink,
+  type BirthRing,
+  type TouchRing,
+  type SignalPulse,
+  type HoverInfo,
+} from "./types.js";
+import { computeClusterLayout, easeOutCubic, easeOutQuad } from "./layout.js";
+import { makeGlowTexture, makeBeacon } from "./beacon.js";
 
-const CLUSTER_PULL_STRENGTH = 0.45;
-// Vertical axis carries *activity height*: hot files float up, cooling ones sink.
-// Target Y per node = sqrt(activity) * ACTIVITY_Y_GAIN. forceY with this
-// strength keeps the cluster discs mostly planar while letting live hotspots
-// rise above the plane — so the commit animation reads as a wave, not a flat lattice.
-const ACTIVITY_Y_STRENGTH = 0.2;
-const ACTIVITY_Y_GAIN = 8;
-const LINK_DISTANCE_BASE = 10;
-const CHARGE_STRENGTH = -14;
-const ALPHA_DECAY = 0.028;
-const ALPHA_ON_REHEAT = 0.25;
-const ALPHA_SLEEP_THRESHOLD = 0.0015;
-
-// Cluster-layout sim
-const CLUSTER_SIM_TICKS = 500;
-const CLUSTER_LAYOUT_RADIUS = 260;
-
-const BIRTH_DURATION_MS = 900;
-const BIRTH_RING_START_SCALE = 0.5;
-const BIRTH_RING_END_SCALE = 9.0;
-const TOUCH_RING_DURATION_MS = 550;
-const TOUCH_RING_END_SCALE = 4.5;
-const PULSE_DURATION_MS = 520;
-
-// Electric signal pulses
-const SIGNAL_DURATION_MS = 620;
-const SIGNAL_BASE_SIZE = 7;
-const SIGNAL_MAX_EDGES_PER_TOUCH = 5;     // fan-out cap per touched file
-const SIGNAL_STAGGER_MS = 18;             // delay between files in the same commit
-const SIGNAL_MAX_ACTIVE = 600;            // global cap so heavy commits don't drown the scene
-const HIGHLIGHT_BOOST = 1.7;              // size multiplier when cluster is highlighted
-
-const CAMERA_TILT = 1.15; // radians from horizontal; ~π/2 = top-down
-
-// ── internal types ──────────────────────────────────────────────
-interface SimNode {
-  id: number;
-  cluster: string;
-  color: THREE.Color;
-  x: number; y: number; z: number;
-  vx?: number; vy?: number; vz?: number;
-  clusterTargetX: number;
-  clusterTargetZ: number;
-  /** Target Y position — sqrt(activity) * ACTIVITY_Y_GAIN. */
-  activityLift: number;
-  targetSize: number;
-  renderedSize: number;
-  alive: boolean;
-  pulseUntil: number;
-  pulseStrength: number;
-}
-
-interface SimLink {
-  source: SimNode | number;
-  target: SimNode | number;
-  weight: number;
-}
-
-interface BirthRing {
-  node: SimNode;
-  startedAt: number;
-  mesh: THREE.Mesh;
-}
-
-interface TouchRing {
-  node: SimNode;
-  startedAt: number;
-  mesh: THREE.Mesh;
-}
-
-/** An electric pulse travelling along an edge between two live nodes. */
-interface SignalPulse {
-  src: SimNode;
-  dst: SimNode;
-  startsAt: number; // performance.now() when the pulse begins traveling
-  color: THREE.Color;
-  size: number;
-}
-
-/** Payload surfaced to the hover callback — file OR cluster, never both. */
-export type HoverInfo =
-  | { kind: "file"; file: FileMeta }
-  | { kind: "cluster"; cluster: Cluster };
-
-// ── textures ────────────────────────────────────────────────────
-
-// Radial-gradient glow, used as the sprite texture for nebula nodes.
-function makeGlowTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0.0, "rgba(255,255,255,1.0)");
-  g.addColorStop(0.15, "rgba(255,255,255,0.85)");
-  g.addColorStop(0.45, "rgba(255,255,255,0.3)");
-  g.addColorStop(1.0, "rgba(255,255,255,0.0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  return tex;
-}
-
-// Small, always-visible beacon at each cluster anchor. Subtle by default —
-// makes cluster centres legible without competing with the nodes themselves.
-function makeBeacon(color: string): THREE.Group {
-  const group = new THREE.Group();
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(1.2, 1.5, 28),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.35,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  const core = new THREE.Mesh(
-    new THREE.CircleGeometry(0.45, 20),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.6,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  );
-  core.rotation.x = -Math.PI / 2;
-  group.add(ring, core);
-  return group;
-}
-
-// ── utility: cluster layout via d3-force ───────────────────────
-function computeClusterLayout(
-  clusters: Cluster[],
-  edges: [number, number, number][],
-  radius: number,
-): Map<string, [number, number, number]> {
-  // 2.5D: clusters live mostly on XZ plane with tiny Y offset.
-  interface CNode {
-    id: string;
-    x: number; y: number; z: number;
-    vx?: number; vy?: number; vz?: number;
-    size: number;
-  }
-  const nodes: CNode[] = clusters.map((c, i) => {
-    // Seed with a ring so the sim has a reasonable starting shape.
-    const angle = (i / clusters.length) * Math.PI * 2;
-    return {
-      id: c.id,
-      x: Math.cos(angle) * radius * 0.7,
-      y: 0,
-      z: Math.sin(angle) * radius * 0.7,
-      size: c.size,
-    };
-  });
-  const links = edges.map(([a, b, w]) => ({
-    source: nodes[a],
-    target: nodes[b],
-    weight: w,
-  }));
-
-  const sim = forceSimulation<CNode>(nodes)
-    .numDimensions(3)
-    .alpha(1)
-    .alphaDecay(0.02)
-    .velocityDecay(0.4)
-    .force(
-      "charge",
-      forceManyBody<CNode>()
-        // Bigger clusters repel more so they don't overlap smaller neighbours.
-        .strength((d: CNode) => -Math.max(60, Math.sqrt(d.size) * 30)),
-    )
-    .force("center", forceCenter<CNode>(0, 0, 0).strength(0.05))
-    .force("y", forceY<CNode>(() => 0).strength(0.35)) // keep mostly flat
-    .force(
-      "link",
-      forceLink<CNode, { source: CNode; target: CNode; weight: number }>(links)
-        .id((d: CNode) => d.id)
-        // Distance shrinks with weight: high-affinity clusters snuggle up.
-        .distance((l) => Math.max(28, 180 / Math.log2(l.weight + 4)))
-        .strength((l) => Math.min(0.9, 0.2 + Math.log2(l.weight + 1) * 0.12)),
-    )
-    .stop();
-
-  for (let i = 0; i < CLUSTER_SIM_TICKS; i++) sim.tick(1);
-
-  // Fix any NaN fallouts (can happen when isolated nodes collide)
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
-    if (!Number.isFinite(n.x) || !Number.isFinite(n.z)) {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      n.x = Math.cos(angle) * radius * 0.9;
-      n.z = Math.sin(angle) * radius * 0.9;
-      n.y = 0;
-    }
-    if (!Number.isFinite(n.y)) n.y = 0;
-  }
-
-  // Recenter so the *weighted* centroid (by cluster size) sits at the origin.
-  // Unweighted centroid would pull toward the many tiny singleton clusters;
-  // we want the visual mass (big clusters) to be what the camera centres on.
-  let cx = 0, cz = 0, totalW = 0;
-  for (const n of nodes) {
-    const w = Math.max(1, n.size);
-    cx += n.x * w;
-    cz += n.z * w;
-    totalW += w;
-  }
-  cx /= totalW;
-  cz /= totalW;
-  let maxR = 0;
-  for (const n of nodes) {
-    n.x -= cx;
-    n.z -= cz;
-    maxR = Math.max(maxR, Math.hypot(n.x, n.z));
-  }
-  const k = maxR > 0 ? radius / maxR : 1;
-
-  const out = new Map<string, [number, number, number]>();
-  for (const n of nodes) {
-    out.set(n.id, [n.x * k, 0, n.z * k]);
-  }
-  return out;
-}
-
-// ── easing ──────────────────────────────────────────────────────
-function easeOutCubic(t: number): number {
-  const k = 1 - t;
-  return 1 - k * k * k;
-}
-function easeOutQuad(t: number): number {
-  return 1 - (1 - t) * (1 - t);
-}
+export type { HoverInfo };
 
 // ── main class ──────────────────────────────────────────────────
 export class Graph {

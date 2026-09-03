@@ -48,9 +48,14 @@ async function loadData(): Promise<Dataset> {
     return json;
   }
 
-  // Dev / serve mode — fetch from the local server.
-  const res = await fetch("/data.json", { cache: "no-store" });
-  if (!res.ok) throw new Error(`failed to load data.json: ${res.status}`);
+  // URL query parameter support for gallery: ?repo=holy-graph or ?data=...
+  const params = new URLSearchParams(window.location.search);
+  const dataParam = params.get("data") || (params.get("repo") ? `/repos/${params.get("repo")}/data.json` : null);
+  const targetUrl = dataParam || "/data.json";
+
+  // Dev / serve mode / gallery mode — fetch from URL.
+  const res = await fetch(targetUrl, { cache: "no-store" });
+  if (!res.ok) throw new Error(`failed to load ${targetUrl}: ${res.status}`);
   const json = await res.json();
   parseSchemaVersion(json);
   return json;

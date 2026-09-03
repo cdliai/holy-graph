@@ -5,6 +5,7 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
 
 import type { Dataset } from "../schema/v1.js";
 import { extract } from "../extract/index.js";
@@ -17,6 +18,7 @@ export interface ServeOptions {
   since?: string;
   config: LoadedConfig;
   rendererHtmlPath?: string;
+  open?: boolean;
 }
 
 export async function runServe(opts: ServeOptions): Promise<{ url: string; close: () => Promise<void> }> {
@@ -55,10 +57,41 @@ export async function runServe(opts: ServeOptions): Promise<{ url: string; close
 
   const port = await listenWithFallback(server, opts.port);
   const url = `http://localhost:${port}`;
+
+  if (opts.open !== false) {
+    openBrowser(url);
+  }
+
   return {
     url,
     close: () => new Promise((resolveClose) => server.close(() => resolveClose())),
   };
+}
+
+export function openBrowser(url: string): void {
+  if (process.env.CI || process.env.NODE_ENV === "test") return;
+
+  const platform = process.platform;
+  let cmd: string;
+  let args: string[];
+
+  if (platform === "darwin") {
+    cmd = "open";
+    args = [url];
+  } else if (platform === "win32") {
+    cmd = "cmd.exe";
+    args = ["/c", "start", '""', url];
+  } else {
+    cmd = "xdg-open";
+    args = [url];
+  }
+
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.unref();
+  } catch {
+    // Ignore failure to launch browser in headless environments
+  }
 }
 
 async function listenWithFallback(

@@ -54,8 +54,10 @@ export function isExcluded(path: string, exclude: RegExp[]): boolean {
 export function clusterOf(path: string): string {
   const parts = path.split("/");
   const head = parts[0];
-  const GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs"]);
-  if (GROUPS.has(head) && parts.length > 1) return `${head}/${parts[1]}`;
+  const MONOREPO_GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs", "modules"]);
+  const CODE_ROOTS = new Set(["src", "lib", "source"]);
+  if (MONOREPO_GROUPS.has(head) && parts.length > 1) return `${head}/${parts[1]}`;
+  if (CODE_ROOTS.has(head) && parts.length > 2) return `${head}/${parts[1]}`;
   return head || "(root)";
 }
 
@@ -106,17 +108,19 @@ export function computeDeltas(rawCommits: RawCommit[], config: DeltaConfig): Del
   }
 
   const commitsOut: Commit[] = [];
+  const seen = new Set<number>();
 
   for (let ci = 0; ci < rawCommits.length; ci++) {
     const c = rawCommits[ci];
-    const effective = c.changes.filter(
-      (ch) => !isExcluded(ch.from, config.exclude) && !isExcluded(ch.to, config.exclude),
-    );
+    const effective = c.changes.filter((ch) => {
+      if (isExcluded(ch.from, config.exclude)) return false;
+      return ch.from === ch.to ? true : !isExcluded(ch.to, config.exclude);
+    });
     if (effective.length === 0) continue;
     if (effective.length > config.maxFilesPerCommit) continue;
 
     const touches: Array<[number, number, number]> = [];
-    const seen = new Set<number>();
+    seen.clear();
     for (const ch of effective) {
       if (ch.from !== ch.to) {
         if (!pathToId.has(ch.from) && !pathToId.has(ch.to)) {

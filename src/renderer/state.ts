@@ -38,8 +38,8 @@ export interface CommitEvent {
 export class Replay {
   /** Per-file EMA activity. */
   readonly activity: Map<number, number> = new Map();
-  /** Per-edge EMA weight, key = `${minId}|${maxId}`. */
-  readonly edges: Map<string, number> = new Map();
+  /** Per-edge EMA weight, packed integer key = (minId << 16) | maxId. */
+  readonly edges: Map<number, number> = new Map();
   /** File id -> has it ever been born? (for the "new birth" flag). */
   readonly bornEver: Set<number> = new Set();
   /** Which commit index we're currently AT (exclusive of unapplied). */
@@ -101,12 +101,12 @@ export class Replay {
       touchedIds.push(id);
     }
 
-    // Co-change: every pair in this commit gets +1 weight
+    // Co-change: packed 32-bit integer key (minId << 16) | maxId (zero string allocations)
     for (let i = 0; i < touchedIds.length; i++) {
       for (let j = i + 1; j < touchedIds.length; j++) {
         const a = touchedIds[i];
         const b = touchedIds[j];
-        const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+        const k = a < b ? (a << 16) | b : (b << 16) | a;
         this.edges.set(k, (this.edges.get(k) ?? 0) + 1);
       }
     }
@@ -145,9 +145,8 @@ export class Replay {
     let edges: Array<{ a: number; b: number; weight: number }> = [];
     for (const [k, w] of this.edges) {
       if (w < EDGE_THRESHOLD) continue;
-      const [as, bs] = k.split("|");
-      const a = Number(as);
-      const b = Number(bs);
+      const a = (k >>> 16) & 0xffff;
+      const b = k & 0xffff;
       if (!live.has(a) || !live.has(b)) continue;
       edges.push({ a, b, weight: w });
     }
