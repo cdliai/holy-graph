@@ -1,15 +1,42 @@
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
-// Cluster-cluster co-change affinity.
-// Optimized low-level implementation:
-//   - Zero string allocations: uses a contiguous Float64Array symmetric matrix in L2 cache.
-//   - O(1) L1 array lookup: fileToCluster[fileId] replaces 2-hop Map lookups.
-//   - Bitset active-set tracking avoids dynamic Set<number> allocations.
 
 import type { ClusterEdge, Commit, FileMeta } from "../schema/v1.js";
 
-/** Minimum weight for an edge to survive into the output. */
+/** Minimum weight for an inter-cluster co-change edge to survive pruning. */
 export const AFFINITY_THRESHOLD = 0.5;
 
+/**
+ * Computes the empirical co-change affinity matrix between architectural clusters.
+ *
+ * ### Mathematical Formulation
+ * For each commit $k \in \mathcal{C}$ that touches active cluster subset $\mathcal{S}_k \subseteq \{0, \dots, N-1\}$
+ * where $|\mathcal{S}_k| \ge 2$, every unordered pair $(i, j) \in \mathcal{S}_k \times \mathcal{S}_k, i < j$
+ * receives an incremental affinity weight scaled inversely by logarithmic cluster cardinality:
+ *
+ * $$\Delta w(i, j) = \frac{1}{\log_2(|\mathcal{S}_k| + 2)}$$
+ *
+ * Logarithmic dampening prevents large multi-cluster bulk commits (e.g. repo-wide renames,
+ * dependency bumps) from dominating fine-grained organic developer workflows.
+ *
+ * ### Computational Complexity
+ * - **Time Complexity**: $\mathcal{O}(C \cdot K^2 + N^2 + E \log E)$
+ *   where $C = |\mathcal{C}|$ commits, $K = \max_k |\mathcal{S}_k|$ clusters touched per commit ($K \ll N$),
+ *   $N = |\text{clusterOrder}|$, and $E \le \frac{N(N-1)}{2}$ surviving edges.
+ * - **Auxiliary Space**: $\mathcal{O}(N^2 + F_{\max})$
+ *   Matrix memory footprint is exactly $8N^2$ bytes (`Float64Array`).
+ *   For $N \le 128$ clusters, the dense matrix consumes $\le 131 \text{ KB}$, fitting entirely
+ *   within modern L2 CPU cache hierarchies.
+ *
+ * ### Zero-Allocation Invariants
+ * - Inner commit loop allocates zero heap objects: no strings, no Map instances, no JS array slices.
+ * - `fileToCluster` maps `fileId` $\to$ `clusterIndex` in direct $\mathcal{O}(1)$ array indexing.
+ * - Active cluster deduplication is performed via a contiguous `Uint8Array` bitset with localized reset.
+ *
+ * @param files Processed file metadata containing monotonically assigned file IDs and assigned clusters.
+ * @param commits Ordered sequence of commits with touch tuples `[fileId, added, removed]`.
+ * @param clusterOrder Canonical cluster registry index.
+ * @returns Sorted array of inter-cluster edges `[clusterA, clusterB, weight]` in descending weight order.
+ */
 export function computeAffinity(
   files: FileMeta[],
   commits: Commit[],
@@ -21,7 +48,7 @@ export function computeAffinity(
   const clusterIndex = new Map<string, number>();
   for (let i = 0; i < N; i++) clusterIndex.set(clusterOrder[i], i);
 
-  // Direct O(1) array lookup: fileId -> clusterIndex
+  // Direct O(1) L1 array lookup: fileId -> clusterIndex
   let maxFileId = 0;
   for (let i = 0; i < files.length; i++) {
     if (files[i].id > maxFileId) maxFileId = files[i].id;
