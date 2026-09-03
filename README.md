@@ -13,7 +13,7 @@ Holy Graph turns a git repository into a 3D scene: every source file is a glowin
 npx @cdli/holy-graph
 ```
 
-Zero configuration required. Analyzes commit history 100% locally on your machine, auto-discovers repository roots, and launches the 3D visualization in your browser at `http://localhost:5173`.
+Zero configuration required. Analyzes commit history 100% locally on your machine, auto-discovers repository roots, and launches the 3D visualization in your browser at `http://localhost:7777`.
 
 ### Single-file HTML export
 
@@ -99,7 +99,7 @@ All keys are optional. CLI flags (`--port`, `--since`, `--config`) override conf
 
 | Setting | Effect |
 | --- | --- |
-| `port` | Dev server port (default: 5173, falls back if busy) |
+| `port` | Dev server port (default: 7777, falls back if busy) |
 | `extract.maxFilesPerCommit` | drop bulk-rewrite commits (default: 80) |
 | `extract.minFileTotalTouches` | prune rarely-touched files (default: 2) |
 | `extract.exclude` | path regexes to ignore (adds to defaults) |

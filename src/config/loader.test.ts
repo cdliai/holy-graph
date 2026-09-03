@@ -25,7 +25,7 @@ describe("loadConfig", () => {
     const cwd = tmp();
     const cfg = await loadConfig(cwd);
     expect(cfg.sourcePath).toBeNull();
-    expect(cfg.port).toBe(5173);
+    expect(cfg.port).toBe(7777);
     expect(cfg.extract.maxFilesPerCommit).toBe(DEFAULT_DELTA_CONFIG.maxFilesPerCommit);
     expect(cfg.since).toBeUndefined();
   });

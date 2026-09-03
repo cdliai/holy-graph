@@ -15,7 +15,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Required<Pick<Config, "port">> & Config = {
-  port: 5173,
+  port: 7777,
 };
 
 /** Merge a user-supplied (partial) config with the defaults. */

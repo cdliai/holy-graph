@@ -25,7 +25,7 @@ OPTIONS
   --run              Explicitly run the dev server (default behavior)
   --out <file>       Export mode: write single-file HTML to <file>
   --force            Overwrite --out if it exists
-  --port <n>         Dev server port (default: 5173, with fallback)
+  --port <n>         Dev server port (default: 7777, with fallback)
   --no-open          Do not automatically launch the browser
   --since <date>     Only include commits since <date> (e.g. 2024-01-01)
   --config <path>    Path to holy-graph.config.{js,mjs,ts}

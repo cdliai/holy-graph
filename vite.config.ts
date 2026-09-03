@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
-  server: { port: 5173, open: false },
+  server: { port: 7777, open: false },
   build: {
     target: "es2022",
     // Emit a single .html with everything inlined — simpler than wiring

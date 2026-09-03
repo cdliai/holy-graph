@@ -92,6 +92,9 @@ export function computeClusterLayout(
       x: Math.cos(angle) * radius * 0.7,
       y: 0,
       z: Math.sin(angle) * radius * 0.7,
+      vx: 0,
+      vy: 0,
+      vz: 0,
       size: c.size,
     };
   });
@@ -102,8 +105,9 @@ export function computeClusterLayout(
     weight: w,
   }));
 
-  const sim = forceSimulation<CNode>(nodes)
+  const sim = forceSimulation<CNode>()
     .numDimensions(3)
+    .nodes(nodes)
     .alpha(1)
     .alphaDecay(0.02)
     .velocityDecay(0.4)
@@ -124,6 +128,18 @@ export function computeClusterLayout(
     .stop();
 
   for (let i = 0; i < CLUSTER_SIM_TICKS; i++) sim.tick(1);
+
+  // Fix any NaN fallouts (can happen when isolated nodes collide)
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.z)) {
+      const angle = (i / nodes.length) * Math.PI * 2;
+      n.x = Math.cos(angle) * radius * 0.9;
+      n.z = Math.sin(angle) * radius * 0.9;
+      n.y = 0;
+    }
+    if (!Number.isFinite(n.y)) n.y = 0;
+  }
 
   // Translate size-weighted center of mass to origin (0, 0, 0)
   let sumX = 0;
