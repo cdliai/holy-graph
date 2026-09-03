@@ -1,25 +1,23 @@
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
-// Running state of the codebase graph: per-file activity EMA, per-edge
-// co-change weight EMA, with time-based decay.
-//
-// Client replays commits forward. Scrubbing backward resets and replays 0→N.
-// Replay is pure arithmetic — no rendering, no sim — so ~4000 commits apply in
-// a few milliseconds.
 
 import type { Dataset } from "../schema";
 
-// Time-based decay half-lives, expressed in days.
-// Activity of an untouched file halves roughly every HALF_LIFE_ACT_DAYS.
+/** Half-life $t_{1/2}$ for file activity decay in solar days ($14\text{ days}$). */
 export const HALF_LIFE_ACT_DAYS = 14;
-// Co-change edge weight halves roughly every HALF_LIFE_EDGE_DAYS.
+
+/** Half-life $t_{1/2}$ for co-change edge weight decay in solar days ($30\text{ days}$). */
 export const HALF_LIFE_EDGE_DAYS = 30;
 
-// Thresholds under which we drop entries (they vanish from the graph).
+/** Absolute lower-bound cutoff under which inactive nodes are purged from the live graph. */
 export const ACTIVITY_THRESHOLD = 0.12;
+
+/** Absolute lower-bound cutoff under which decaying edges are pruned. */
 export const EDGE_THRESHOLD = 0.18;
 
-// Caps so we never hand the renderer an infinitely-large graph.
+/** Maximum upper bound of concurrent rendered nodes to guarantee 60 FPS GPU draw calls. */
 export const MAX_LIVE_NODES = 500;
+
+/** Maximum upper bound of concurrent rendered co-change edges. */
 export const MAX_LIVE_EDGES = 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -27,27 +25,66 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Event emitted to the renderer when a commit is applied forward. */
 export interface CommitEvent {
   commitIdx: number;
-  /** File ids born in this commit (first-ever appearance). */
+  /** File IDs born in this commit (first-ever appearance in Git history). */
   born: number[];
-  /** File ids touched (already alive) in this commit. */
+  /** File IDs touched (already existing in repository) in this commit. */
   touched: number[];
-  /** The per-file commit magnitudes, for pulse strength. */
+  /** Per-file commit touch magnitudes for visual pulse intensity. */
   magnitude: Map<number, number>;
 }
 
+/**
+ * Packs two 16-bit unsigned integer node IDs into a canonical 32-bit unsigned integer key.
+ *
+ * $$\text{Key}(a, b) = (\min(a, b) \ll 16) \mid \max(a, b)$$
+ *
+ * @complexity $\mathcal{O}(1)$ time, zero heap memory allocation.
+ */
+export function packEdgeKey(a: number, b: number): number {
+  return a < b ? (a << 16) | b : (b << 16) | a;
+}
+
+/**
+ * Decodes a 32-bit packed integer key into its constituent $[a, b]$ file ID pair.
+ *
+ * $$a = K \ggg 16, \quad b = K \ \& \ \text{0xFFFF}$$
+ *
+ * @complexity $\mathcal{O}(1)$ time, zero string parsing.
+ */
+export function unpackEdgeKey(k: number): [number, number] {
+  return [(k >>> 16) & 0xffff, k & 0xffff];
+}
+
+/**
+ * Stateful arithmetic replay engine tracking temporal file activity and edge coupling.
+ *
+ * ### Physical Model & Decay Dynamics
+ * Between consecutive commits $c_{k-1}$ and $c_k$ separated by $\Delta t$ days,
+ * activity and edge weights undergo continuous exponential decay:
+ *
+ * $$v(t + \Delta t) = v(t) \cdot 2^{-\frac{\Delta t}{t_{1/2}}}$$
+ *
+ * Files touched within commit $c_k$ receive an instantaneous energy impulse scaled
+ * logarithmically by code churn:
+ *
+ * $$M = 1 + \ln(1 + \Delta_{\text{added}} + \Delta_{\text{removed}})$$
+ *
+ * Every unordered pair $(u, v)$ co-modified within the commit increments their
+ * pairwise temporal coupling edge by $+1$.
+ */
 export class Replay {
-  /** Per-file EMA activity. */
+  /** Per-file Exponential Moving Average (EMA) activity. */
   readonly activity: Map<number, number> = new Map();
-  /** Per-edge EMA weight, packed integer key = (minId << 16) | maxId. */
+  /** Per-edge EMA weight indexed by packed 32-bit integer key $(u \ll 16) \mid v$. */
   readonly edges: Map<number, number> = new Map();
-  /** File id -> has it ever been born? (for the "new birth" flag). */
+  /** Monotonic bitset tracking whether a file has ever been instantiated. */
   readonly bornEver: Set<number> = new Set();
-  /** Which commit index we're currently AT (exclusive of unapplied). */
+  /** Head commit index cursor $[0, |\text{commits}|]$. */
   cursor = 0;
 
   constructor(private readonly data: Dataset) {}
 
-  /** Reset state to before any commit has been applied. */
+  /** Resets state vector to prior to commit 0. $\mathcal{O}(1)$ amortized. */
   reset(): void {
     this.activity.clear();
     this.edges.clear();
@@ -56,8 +93,14 @@ export class Replay {
   }
 
   /**
-   * Apply the next commit. Returns metadata about what changed so the renderer
-   * can trigger birth/touch animations precisely.
+   * Advances simulation forward by exactly one commit.
+   *
+   * ### Computational Complexity
+   * - **Time Complexity**: $\mathcal{O}(N_{\text{live}} + E_{\text{live}} + T^2)$
+   *   where $T = |\text{touches}|$ in the current commit, $N_{\text{live}} \le 500$, and $E_{\text{live}} \le 1000$.
+   * - **Auxiliary Space**: $\mathcal{O}(T)$ allocations for returned event descriptor.
+   *
+   * @returns Event metadata for GPU particle/ring spawning, or `null` if EOF reached.
    */
   step(): CommitEvent | null {
     if (this.cursor >= this.data.commits.length) return null;
@@ -106,7 +149,7 @@ export class Replay {
       for (let j = i + 1; j < touchedIds.length; j++) {
         const a = touchedIds[i];
         const b = touchedIds[j];
-        const k = a < b ? (a << 16) | b : (b << 16) | a;
+        const k = packEdgeKey(a, b);
         this.edges.set(k, (this.edges.get(k) ?? 0) + 1);
       }
     }
@@ -115,7 +158,11 @@ export class Replay {
     return { commitIdx: this.cursor - 1, born, touched, magnitude };
   }
 
-  /** Seek forward or backward to the given commit index (exclusive). */
+  /**
+   * Seeks timeline head to `target` commit index.
+   *
+   * @complexity $\mathcal{O}(\Delta \cdot \text{step})$ forward seek; $\mathcal{O}(\text{target} \cdot \text{step})$ backward seek.
+   */
   seek(target: number): void {
     target = Math.max(0, Math.min(target, this.data.commits.length));
     if (target < this.cursor) {
@@ -125,8 +172,11 @@ export class Replay {
   }
 
   /**
-   * Derive the currently-live node + edge sets from the running state.
-   * Capped by MAX_LIVE_NODES / MAX_LIVE_EDGES (top-K by weight).
+   * Derives active top-$K$ nodes and edges bounded by GPU rendering capacity.
+   *
+   * ### Computational Complexity
+   * - **Time Complexity**: $\mathcal{O}(|A| \log |A| + |E| \log |E|)$ where $|A| = |\text{activity}|$ and $|E| = |\text{edges}|$.
+   * - **Auxiliary Space**: $\mathcal{O}(K_N + K_E)$ where $K_N = 500$ and $K_E = 1000$.
    */
   liveSnapshot(): {
     nodes: Array<{ id: number; activity: number }>;

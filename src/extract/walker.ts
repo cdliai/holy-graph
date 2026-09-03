@@ -1,7 +1,4 @@
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
-// Git log walking and rename resolution.
-// Invokes `git log --numstat -M70% --reverse --no-merges`, parses the output
-// into RawCommit records, and resolves renames collapsed by git into from→to pairs.
 
 import { execFileSync } from "node:child_process";
 
@@ -27,12 +24,22 @@ export interface WalkOptions {
 }
 
 /**
- * Parse a git-numstat path field that may be a rename collapsed by git.
+ * Resolves Git's collapsed rename path grammar into canonical source/destination pairs.
  *
- * Examples:
- * - `"src/a.ts"`                  → `{ from: "src/a.ts", to: "src/a.ts" }`
- * - `"old => new"`                → `{ from: "old",      to: "new" }`
- * - `"prefix/{old => new}/suf"`   → `{ from: "prefix/old/suf", to: "prefix/new/suf" }`
+ * ### Grammatical Productions
+ * 1. **Identity**:
+ *    $$\text{"path/to/file.ts"} \implies (\text{from}: \text{"path/to/file.ts"}, \text{to}: \text{"path/to/file.ts"})$$
+ * 2. **Unbounded Rename**:
+ *    $$\text{"old.ts => new.ts"} \implies (\text{from}: \text{"old.ts"}, \text{to}: \text{"new.ts"})$$
+ * 3. **Affixed Subpath Substitution**:
+ *    $$P \cdot \{\alpha \implies \beta\} \cdot S \implies (\text{from}: P \cdot \alpha \cdot S, \text{to}: P \cdot \beta \cdot S)$$
+ *    *Example*: `"src/{legacy => modern}/index.ts"` $\implies$ `("src/legacy/index.ts", "src/modern/index.ts")`
+ *
+ * ### Computational Complexity
+ * - **Time Complexity**: $\mathcal{O}(L)$ where $L = |\text{field}|$ characters.
+ * - **Auxiliary Space**: $\mathcal{O}(L)$ string allocation for resolved paths.
+ *
+ * @param field The raw path string from the 3rd column of `git log --numstat`.
  */
 export function splitRename(field: string): { from: string; to: string } {
   const braceIdx = field.indexOf("{");
@@ -55,7 +62,29 @@ export function splitRename(field: string): { from: string; to: string } {
 }
 
 /**
- * Walk the git log of `repo` and return parsed raw commits in chronological order.
+ * Walks the Git commit history and extracts chronological per-commit numstat deltas.
+ *
+ * ### Systems & Parsing Architecture
+ * Invokes `git log` with the following flags:
+ * - `--reverse`: Preserves chronological order required for topological graph construction.
+ * - `--no-merges`: Filters out merge commits to prevent synthetic duplicate diffs.
+ * - `-M70%`: Activates Git's internal similarity index algorithm at $70\%$ threshold to track renames.
+ * - `--numstat`: Emits added/removed line counters and path specifications.
+ * - `--pretty=format:C\t%H\t%at\t%aN\t%s`: Emits commit header prefix `C\t` with timestamp and author.
+ *
+ * ### Memory Layout & Zero-Array Scanning Invariants
+ * - **No Intermediate String Array (`split("\n")`)**: Scans the stdout buffer sequentially using
+ *   cursor indices (`indexOf("\n")`). Avoids allocating millions of temporary string pointers on the V8 heap.
+ * - **No Line Token Array (`split("\t")`)**: Extracts numstat fields via zero-allocation `indexOf("\t")`
+ *   indexing directly on the current line slice.
+ *
+ * ### Computational Complexity
+ * - **Time Complexity**: $\mathcal{O}(B)$ where $B$ is the total byte size of Git's stdout stream.
+ * - **Auxiliary Space**: $\mathcal{O}(C + T)$ where $C = |\text{commits}|$ and $T = |\text{total file touches}|$.
+ *   Working heap allocation during parsing is bounded by $\mathcal{O}(L_{\max})$ line slice length.
+ *
+ * @param opts Git repository path and optional `--since` filter.
+ * @returns Parsed chronological raw commit records with resolved renames.
  */
 export function walkGitLog(opts: WalkOptions): RawCommit[] {
   const args = [

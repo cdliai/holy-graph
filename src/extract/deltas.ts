@@ -1,7 +1,4 @@
 // @cdli/holy-graph — FSL-1.1-Apache-2.0 — (c) 2026 CDLI
-// Commit filtering, file pruning, and per-commit touch assembly.
-// Takes parsed raw commits and returns the set of surviving files + commits with
-// stable numeric file ids, dropping bulk-rewrite commits and rarely-touched files.
 
 import type { Commit, FileMeta } from "../schema/v1.js";
 import type { RawCommit } from "./walker.js";
@@ -42,20 +39,35 @@ export interface DeltaResult {
   commits: Commit[];
 }
 
+/**
+ * Checks whether a candidate path matches any compiled exclusion regex pattern.
+ *
+ * @complexity $\mathcal{O}(E \cdot L)$ where $E = |\text{exclude}|$ and $L = |\text{path}|$.
+ */
 export function isExcluded(path: string, exclude: RegExp[]): boolean {
   for (const re of exclude) if (re.test(path)) return true;
   return false;
 }
 
+const MONOREPO_GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs", "modules"]);
+const CODE_ROOTS = new Set(["src", "lib", "source"]);
+
 /**
- * Heuristic bucket for a file into a cluster by its top-level directory — or
- * two levels when the top level is a known monorepo grouping (`apps/`, `packages/`, …).
+ * Partitions file paths into architectural domain clusters using structural directory heuristics.
+ *
+ * ### Partitioning Invariants
+ * 1. **Monorepo Packages**: If the top-level segment is a recognized monorepo container
+ *    (`apps`, `packages`, `tools`, etc.), clusters by the 2-level path `head/pkg` (e.g. `packages/core`).
+ * 2. **Standard Code Roots**: If the top-level segment is a code root (`src`, `lib`, `source`)
+ *    with subdirectories, clusters by functional subsystem `src/cli`, `src/renderer` rather than
+ *    collapsing the entire repository into a monolithic `src` cluster.
+ * 3. **Fallback**: Default to root directory segment or `"(root)"`.
+ *
+ * @complexity $\mathcal{O}(L)$ time, $\mathcal{O}(L)$ space where $L = |\text{path}|$.
  */
 export function clusterOf(path: string): string {
   const parts = path.split("/");
   const head = parts[0];
-  const MONOREPO_GROUPS = new Set(["apps", "packages", "tools", "ops", "scripts", "services", "libs", "modules"]);
-  const CODE_ROOTS = new Set(["src", "lib", "source"]);
   if (MONOREPO_GROUPS.has(head) && parts.length > 1) return `${head}/${parts[1]}`;
   if (CODE_ROOTS.has(head) && parts.length > 2) return `${head}/${parts[1]}`;
   return head || "(root)";
@@ -71,8 +83,30 @@ interface InternalFile {
 }
 
 /**
- * Walk raw commits in order and assemble the final Dataset-compatible
- * `files` and `commits` arrays, with stable numeric ids and pruning.
+ * Compiles chronological raw commits into compacted, indexed datasets with stable numeric file IDs.
+ *
+ * ### Algorithmic Phases
+ * 1. **Pass 1: Evolutionary Graph Construction & Rename Tracking**:
+ *    - Assigns monotonic stable integer IDs $0, 1, \dots, F-1$.
+ *    - Resolves renames ($A \implies B$): preserves file identity $\text{id}(B) = \text{id}(A)$,
+ *      updates current path to $B$, and records $A$ in the file's historical alias set.
+ *    - Enforces noise filtering: drops commits touching $> M$ files ($\text{maxFilesPerCommit}$).
+ * 2. **Pass 2: Activity Pruning & ID Compaction**:
+ *    - Prunes ephemeral files with $\text{totalTouches} < T_{\min}$ ($\text{minFileTotalTouches}$).
+ *    - Compacts surviving file IDs into a continuous zero-indexed sequence $[0, \dots, F'-1]$
+ *      via an `oldToNew` direct array lookup.
+ *    - Rewrites commit touch tuples $[id, added, removed]$ and discards empty commits.
+ *
+ * ### Computational Complexity
+ * - **Time Complexity**: $\mathcal{O}(C \cdot T_{\text{avg}} + F \log F)$
+ *   where $C = |\text{rawCommits}|$, $T_{\text{avg}}$ is average touches per commit,
+ *   and $F$ is unique historical file count.
+ * - **Auxiliary Space**: $\mathcal{O}(F + C \cdot T_{\text{avg}})$ heap residency for file registry
+ *   and compacted commit sequence.
+ *
+ * @param rawCommits Chronological commits parsed from Git log.
+ * @param config Delta extraction tunables (bulk limit, min touches, exclusions).
+ * @returns Clean, compacted file registry and commit delta stream.
  */
 export function computeDeltas(rawCommits: RawCommit[], config: DeltaConfig): DeltaResult {
   const pathToId = new Map<string, number>();
@@ -146,51 +180,38 @@ export function computeDeltas(rawCommits: RawCommit[], config: DeltaConfig): Del
     });
   }
 
-  // Prune files below the touch threshold, remap ids.
-  const remap = new Map<number, number>();
-  const keptFiles: FileMeta[] = [];
-  for (const f of files) {
-    if (f.totalTouches < config.minFileTotalTouches) continue;
-    const newId = keptFiles.length;
-    remap.set(f.id, newId);
-    keptFiles.push({
+  // Prune files with fewer than min touches
+  const surviving = files.filter((f) => f.totalTouches >= config.minFileTotalTouches);
+  const oldToNew = new Map<number, number>();
+  for (let i = 0; i < surviving.length; i++) {
+    oldToNew.set(surviving[i].id, i);
+  }
+
+  const finalFiles: FileMeta[] = surviving.map((f, newId): FileMeta => {
+    const out: FileMeta = {
       id: newId,
       path: f.path,
       cluster: f.cluster,
-      firstCommitIdx: -1, // fixed up below
+      firstCommitIdx: f.firstCommitIdx,
       totalTouches: f.totalTouches,
-      aliases: f.allPaths.size > 1 ? Array.from(f.allPaths) : undefined,
-    });
-  }
+    };
+    if (f.allPaths.size > 1) out.aliases = Array.from(f.allPaths);
+    return out;
+  });
 
-  // Filter touches against remap and track each file's post-filter first-appearance index.
-  for (let ci = 0; ci < commitsOut.length; ci++) {
-    const c = commitsOut[ci];
-    const filtered: Array<[number, number, number]> = [];
-    for (const [oldId, added, removed] of c.touches) {
-      const nid = remap.get(oldId);
-      if (nid === undefined) continue;
-      filtered.push([nid, added, removed]);
-      if (keptFiles[nid].firstCommitIdx === -1) {
-        keptFiles[nid].firstCommitIdx = ci;
+  // Rewrite commit touches to point at compacted file IDs
+  const finalCommits: Commit[] = [];
+  for (const c of commitsOut) {
+    const remapTouches: Array<[number, number, number]> = [];
+    for (const [oldId, a, r] of c.touches) {
+      const newId = oldToNew.get(oldId);
+      if (newId !== undefined) {
+        remapTouches.push([newId, a, r]);
       }
     }
-    c.touches = filtered;
+    if (remapTouches.length === 0) continue;
+    finalCommits.push({ ...c, touches: remapTouches });
   }
 
-  // Drop commits that ended up empty after pruning.
-  const commitsFinal: Commit[] = [];
-  const commitIdxRemap = new Map<number, number>();
-  for (let ci = 0; ci < commitsOut.length; ci++) {
-    const c = commitsOut[ci];
-    if (c.touches.length === 0) continue;
-    commitIdxRemap.set(ci, commitsFinal.length);
-    commitsFinal.push(c);
-  }
-
-  for (const f of keptFiles) {
-    f.firstCommitIdx = commitIdxRemap.get(f.firstCommitIdx) ?? 0;
-  }
-
-  return { files: keptFiles, commits: commitsFinal };
+  return { files: finalFiles, commits: finalCommits };
 }

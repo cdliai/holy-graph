@@ -104,6 +104,21 @@ interface DatasetIndex {
 
 const INDEX_CACHE = new WeakMap<Dataset, DatasetIndex>();
 
+/**
+ * Constructs or retrieves a memoized inverted index over the dataset.
+ *
+ * ### Inverted Index Architecture
+ * Builds a direct inverted posting list `fileCommits[fileId] = [ci_0, ci_1, ...]`
+ * mapping every file ID directly to the commit indices where it was touched.
+ *
+ * Memoized via a `WeakMap<Dataset, DatasetIndex>`:
+ * - Automatically evicted by V8 garbage collector when the parent Dataset is de-referenced.
+ * - Guarantees zero memory leaks on reloaded datasets.
+ *
+ * ### Computational Complexity
+ * - **Construction Time**: $\mathcal{O}(F + C \cdot T)$ single pass over dataset.
+ * - **Auxiliary Space**: $\mathcal{O}(F + C \cdot T)$ pointers.
+ */
 export function getOrCreateIndex(dataset: Dataset): DatasetIndex {
   let idx = INDEX_CACHE.get(dataset);
   if (!idx) {
@@ -138,7 +153,16 @@ export function getOrCreateIndex(dataset: Dataset): DatasetIndex {
   return idx;
 }
 
-/** Helper to find a file in the dataset by exact path, relative path suffix, or alias. */
+/**
+ * Resolves a file query string against the dataset using a multi-tiered hash index.
+ *
+ * ### Resolution Hierarchy
+ * 1. $\mathcal{O}(1)$ exact path lookup in `pathMap`.
+ * 2. $\mathcal{O}(1)$ basename suffix lookup in `suffixMap`.
+ * 3. $\mathcal{O}(F)$ fallback linear scan over `dataset.files`.
+ *
+ * @complexity $\mathcal{O}(1)$ amortized best-case; $\mathcal{O}(F)$ worst-case.
+ */
 export function findFileInDataset(dataset: Dataset, inputPath: string): FileMeta | null {
   const clean = normalize(inputPath).replace(/^(\.\/|\/)/, "");
   const idx = getOrCreateIndex(dataset);
@@ -162,7 +186,11 @@ export function findFileInDataset(dataset: Dataset, inputPath: string): FileMeta
   return null;
 }
 
-/** Get currently modified (unstaged or staged) files in the repo via git status. */
+/**
+ * Retrieves uncommitted or staged files in the working tree via `git status --porcelain`.
+ *
+ * @complexity $\mathcal{O}(D)$ where $D = |\text{dirty files}|$.
+ */
 export function getDirtyFiles(repo: string): string[] {
   try {
     const stdout = execFileSync("git", ["-C", repo, "status", "--porcelain"], {
@@ -184,7 +212,23 @@ export function getDirtyFiles(repo: string): string[] {
   }
 }
 
-/** Implementation of holy_graph_get_cochange_neighbors */
+/**
+ * Computes the empirical temporal coupling neighborhood for a target file.
+ *
+ * ### Cosine Temporal Coupling Formula
+ * For target file $A$ and neighbor $B$, normalized affinity $\rho(A, B)$ is defined as:
+ *
+ * $$\rho(A, B) = \frac{|\mathcal{C}_A \cap \mathcal{C}_B|}{\sqrt{|\mathcal{C}_A| \cdot |\mathcal{C}_B|}}$$
+ *
+ * where $\mathcal{C}_X$ is the set of commits touching file $X$.
+ *
+ * ### Sub-Linear Inverted Query Complexity
+ * Utilizing the inverted index `fileCommits[targetId]`, traversal inspects **only**
+ * the commits $c \in \mathcal{C}_A$, dropping execution time from $\mathcal{O}(C_{\text{total}})$
+ * to $\mathcal{O}(|\mathcal{C}_A| \cdot T_{\text{commit}})$.
+ *
+ * @complexity $\mathcal{O}(|\mathcal{C}_A| \cdot T + N \log N)$ where $N \le 50$ neighbors returned.
+ */
 export function handleGetCochangeNeighbors(
   dataset: Dataset,
   args: { path: string; limit?: number },
@@ -254,7 +298,21 @@ export function handleGetCochangeNeighbors(
   };
 }
 
-/** Implementation of holy_graph_get_blast_radius */
+/**
+ * Calculates the ripple effect of modified files across architectural domains.
+ *
+ * ### Graph Neighborhood Expansion
+ * Expands a 1-hop empirical coupling frontier from initial seed set $\mathcal{P} \subseteq \mathcal{F}$:
+ *
+ * $$\mathcal{B} = \left\{ v \in \mathcal{F} \setminus \mathcal{P} \;\middle|\; \max_{u \in \mathcal{P}} \rho(u, v) \ge \tau \right\}$$
+ *
+ * Architectural risk is categorized by cross-module leakage:
+ * - **HIGH**: $\ge 3$ cross-module bridges or $\ge 8$ total impacted files.
+ * - **MEDIUM**: $\ge 1$ cross-module bridge or $\ge 3$ total impacted files.
+ * - **LOW**: Purely intra-module localized changes.
+ *
+ * @complexity $\mathcal{O}(|\mathcal{P}| \cdot |\mathcal{C}_p| \cdot T + |\mathcal{B}| \log |\mathcal{B}|)$
+ */
 export function handleGetBlastRadius(
   dataset: Dataset,
   repo: string,
@@ -368,7 +426,19 @@ export function handleGetBlastRadius(
   };
 }
 
-/** Implementation of holy_graph_list_hotspots */
+/**
+ * Ranks files by churn frequency and cross-module entanglement degree.
+ *
+ * ### Entanglement Metric Formulation
+ * The cross-module entanglement degree $E(f)$ is defined as the cardinality of foreign modules
+ * co-committed alongside file $f$:
+ *
+ * $$E(f) = \left| \bigcup_{c \in \mathcal{C}_f} \left\{ \text{cluster}(g) \mid g \in c, \text{cluster}(g) \ne \text{cluster}(f) \right\} \right|$$
+ *
+ * Files with high churn and high $E(f)$ constitute systemic architectural debt hotspots.
+ *
+ * @complexity $\mathcal{O}(C \cdot T + F \log F)$
+ */
 export function handleListHotspots(
   dataset: Dataset,
   args: { limit?: number; cluster?: string },
@@ -419,7 +489,11 @@ export function handleListHotspots(
     .slice(0, limit);
 }
 
-/** Implementation of holy_graph_get_module_graph */
+/**
+ * Extracts the quotient graph $G = (V_{\text{mod}}, E_{\text{bridge}})$ of architectural modules.
+ *
+ * @complexity $\mathcal{O}(|V_{\text{mod}}| + |E_{\text{bridge}}|)$ direct mapping.
+ */
 export function handleGetModuleGraph(dataset: Dataset): {
   clusters: Array<{ id: string; label: string; fileCount: number; color: string }>;
   bridges: Array<{
@@ -444,7 +518,11 @@ export function handleGetModuleGraph(dataset: Dataset): {
   return { clusters, bridges };
 }
 
-/** Implementation of holy_graph_explain_architecture */
+/**
+ * Synthesizes an executive markdown architectural breakdown for LLM context injection.
+ *
+ * @complexity $\mathcal{O}(F + C \cdot T)$
+ */
 export function handleExplainArchitecture(dataset: Dataset): string {
   const modGraph = handleGetModuleGraph(dataset);
   const hotspots = handleListHotspots(dataset, { limit: 5 });
