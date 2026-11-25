@@ -4,11 +4,11 @@
 // Dataset as inline JSON, and writes the resulting HTML to `outPath`.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import type { Dataset } from "../schema/v1.js";
 import { injectDataIntoHtml } from "./template.js";
 import { errors } from "../cli/errors.js";
+import { defaultRendererHtml } from "../cli/renderer-path.js";
 
 export interface ExportOptions {
   /** Absolute path to write the single-file HTML to. */
@@ -20,7 +20,7 @@ export interface ExportOptions {
 }
 
 export function exportHtml(data: Dataset, opts: ExportOptions): { bytes: number } {
-  const rendererHtmlPath = opts.rendererHtmlPath ?? resolveDefaultRendererHtml();
+  const rendererHtmlPath = opts.rendererHtmlPath ?? defaultRendererHtml();
   if (!existsSync(rendererHtmlPath)) {
     throw errors.rendererMissing(rendererHtmlPath);
   }
@@ -35,16 +35,3 @@ export function exportHtml(data: Dataset, opts: ExportOptions): { bytes: number 
   return { bytes: Buffer.byteLength(final, "utf8") };
 }
 
-/**
- * Resolve the default path to the built renderer HTML. The CLI is executed as
- * `dist/cli/index.js`; the renderer sits at `dist/index.html` (two levels up
- * from the CLI entry at runtime).
- */
-function resolveDefaultRendererHtml(): string {
-  // Both dist/cli/index.js and dist/index.html are siblings-of-parent.
-  // When the CLI runs, import.meta.url points to dist/cli/index.js.
-  // Use process.argv[1] as a stable anchor.
-  const cliEntry = process.argv[1] ?? "";
-  // dist/cli/index.js → dist/index.html
-  return resolve(cliEntry, "..", "..", "index.html");
-}
