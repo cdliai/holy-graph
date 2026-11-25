@@ -2,7 +2,7 @@
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,9 +17,10 @@ const RENDERER_HTML = resolve(__dirname, "../../dist/index.html");
 function runSync(
   args: string[],
   cwd?: string,
+  entry: string = CLI,
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const stdout = execFileSync(CLI, args, { encoding: "utf8", cwd });
+    const stdout = execFileSync(entry, args, { encoding: "utf8", cwd });
     return { stdout, stderr: "", exitCode: 0 };
   } catch (err: unknown) {
     const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; status?: number };
@@ -98,6 +99,21 @@ describe("holy-graph CLI", () => {
     const html = readFileSync(out, "utf8");
     expect(html).toContain(`id="holy-graph-data"`);
     expect(html).toContain(`"schemaVersion":1`);
+  });
+
+  it("exports through a symlinked .bin entry, as when installed as a dependency", () => {
+    repo = createFixtureRepo([{ files: { "a.txt": "x" }, message: "init" }]);
+    const proj = resolve(repo.path, "..", "holy-graph-shim-proj");
+    const binDir = resolve(proj, "node_modules", ".bin");
+    mkdirSync(binDir, { recursive: true });
+    const shim = resolve(binDir, "holy-graph");
+    symlinkSync(CLI, shim);
+    const out = resolve(proj, "viz.html");
+    const { stdout, exitCode } = runSync([repo.path, "--out", out], proj, shim);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/wrote .* KB/);
+    expect(existsSync(out)).toBe(true);
+    rmSync(proj, { recursive: true, force: true });
   });
 
   it("refuses to overwrite --out without --force", () => {
