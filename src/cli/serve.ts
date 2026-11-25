@@ -4,13 +4,13 @@
 
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 import type { Dataset } from "../schema/v1.js";
 import { extract } from "../extract/index.js";
 import type { LoadedConfig } from "../config/loader.js";
 import { errors } from "./errors.js";
+import { defaultRendererHtml } from "./renderer-path.js";
 
 export interface ServeOptions {
   repo: string;
@@ -125,7 +125,3 @@ async function listenWithFallback(
   throw errors.invalidArgs(`could not bind to any port in ${preferredPort}..${preferredPort + maxAttempts - 1}`);
 }
 
-function defaultRendererHtml(): string {
-  const cliEntry = process.argv[1] ?? "";
-  return resolve(cliEntry, "..", "..", "index.html");
-}
